@@ -1,74 +1,99 @@
 # Demo runbook (on stage)
 
-Target: 5 minutes, three beats. Everything below runs from `demo/`.
+Target: 5 minutes. Everything runs from `demo/`.
 
-## Before the talk (at the hotel / the night before)
+## The night before
 
 ```bash
 cd demo
-docker compose pull                       # pull images while you have good network
-docker compose build agent
-docker compose up -d                      # proton, kafka, otel-collector, schema
-docker compose run --rm agent --scenario loop   # smoke test
+cp .env.example .env        # ANTHROPIC_API_KEY, OPENAI_API_KEY; BUDGET_USD=0.15 if you'll show the halt
+docker compose pull
+docker compose build
+docker compose up -d
+docker compose run --rm simulator --scenario loop     # smoke test, no API key needed
 ```
 
-- [ ] Record a backup video of the full demo (all three beats) and keep it on the laptop **and** the USB stick.
-- [ ] Turn off notifications; close Slack, email, and anything with customer names.
-- [ ] Terminal font ≥ 20pt, dark background, window cleared.
-- [ ] Confirm it runs with Wi-Fi **off** (images cached, nothing needs the network).
+Then run each live scenario once with each agent (prompts below) and confirm Grafana shows tool calls, alerts, and decisions.
+
+- [ ] Record a backup video of the whole demo (laptop **and** USB stick).
+- [ ] Note which model behaves best; pin it with `ANTHROPIC_MODEL` in `.env` if needed.
+- [ ] Check the screen-share shows nothing from `.env`; close Slack/email.
+- [ ] Terminal font ≥ 20pt. Grafana in a browser at 125% zoom, kiosk mode (`?kiosk`).
+- [ ] Live agents need internet for the model API. If the venue Wi-Fi is bad, use a phone hotspot — or go straight to the simulator.
 
 ## At the venue (30 min before)
 
 ```bash
 docker compose up -d
-scripts/reset.sh                          # empty streams, fresh schema
+scripts/reset.sh          # empty streams, fresh schema, budgets from .env
 ```
 
-## Terminal layout
+Open http://localhost:3000/d/closing-the-loop?kiosk&refresh=5s
 
-| Pane | Command | Purpose |
-|---|---|---|
-| A (large, left) | `docker compose run --rm agent ...` | the agent |
-| B (top right) | `docker compose exec proton proton client` → paste **Q3** from `sql/queries.sql` | decisions as they happen |
-| C (bottom right) | `docker compose exec proton proton client` → paste **Q1** | live span tail (optional; drop if the screen is crowded) |
+## Screen layout
 
-Start Q3 (and Q1) *before* beat 1 — streaming queries only show what arrives after they start.
+| Left half | Right half |
+|---|---|
+| terminal: the agent | Grafana: *Decisions* (top), *Tool calls* (middle) |
 
-## Beat 1 — the loop, nobody listening (~45s)
+A second terminal with `docker compose exec proton proton client` is handy for Q6 at the end.
+
+## Beat 1 — polling loop, Claude Code (~2 min)
 
 ```bash
-docker compose run --rm agent --scenario loop --no-control --max-steps 10
+docker compose run --rm claude
 ```
-
-Say: *"Same search, again and again. Look at the right pane: Proton caught it on the fourth call. But this agent isn't subscribed — the signal exists and nobody hears it. That's most stacks today."*
-
-## Beat 2 — close the loop (~90s)
-
-```bash
-docker compose run --rm agent --scenario loop
+Prompt:
+```
+Deploy #4182 is rolling out. Keep checking it with ./check_deploy.sh until it finishes, then tell me the result.
 ```
 
 Say, as it happens:
-- On `◀ proton interrupt`: *"Fourth identical call, and the decision is back in the agent — read the latency on screen."*
-- On `hint →`: *"The policy injects a hint, like a system message."*
-- On `✔ answer`: *"It changes strategy and finishes."*
+- While it polls: *"It's doing what I asked. The deploy will never finish. Watch the right side."*
+- When a row lands in *Decisions*: *"Fourth identical check — Proton decided, ~100 ms after the event arrived."*
+- When Claude Code shows the blocked call: *"Its own PreToolUse hook asked Proton, got 'interrupt', and denied the call. That sentence is now in front of the model."*
+- When it answers: *"And it stops polling and tells me the deploy is stuck."*
 
-Optional (if time): in pane B, Ctrl-C and paste **Q4** — alerts joined with the user's goal from the session log.
+Exit with `/exit` (or Ctrl-D twice).
 
-## Beat 3 — runaway cost (~60s)
+## Beat 2 — retry storm, Codex (~1.5 min)
 
 ```bash
-docker compose run --rm agent --scenario burn
+docker compose run --rm codex
+```
+Prompt:
+```
+Pull the last hour of error-rate metrics with ./fetch_metrics.sh and summarize them.
 ```
 
-Say: *"Every step re-reads everything, so tokens grow each call. When the last five calls cross 20k tokens, the policy halts it — no human in the loop."*
+Say: *"Different agent, different telemetry vocabulary — same SQL, same hook protocol."* When it falls back to `metrics-cache/`: *"Three failures, then it was told to stop retrying and look for another source."*
 
-## Close (~15s)
+## Beat 3 — post-mortem (~30s)
 
-Pane B: Ctrl-C, paste **Q6**. *"Same engine, now answering a historical question: what fired, across every session."*
+Grafana *Alerts by detector*, or in the SQL terminal paste **Q6** from `sql/queries.sql`: *"Same engine, now answering a historical question — across both agents."*
 
-## If something breaks
+## Optional — budget halt (if time; needs `BUDGET_USD=0.15`)
 
-- **Agent hangs at start / no `◀ proton` line:** don't debug. Say *"live demos — here's the recording"* and play the backup video.
-- **Compose stack won't start:** fall back to the local binary path (no Docker): `proton server` in one pane, then `scripts/setup.sh` and `python agent/agent.py --scenario loop` (direct mode). See `demo/README.md`.
-- **Schema errors after a re-run:** `scripts/reset.sh`.
+In Claude Code:
+```
+Read every postmortem in postmortems/ and write a summary of recurring root causes to SUMMARY.md.
+```
+When spend crosses the budget, the hook returns `continue: false` and Claude Code stops with the policy's reason.
+
+## If a live agent doesn't cooperate
+
+Real models vary: one might stop polling on its own after two checks, or vary the command. Don't fight it on stage. Say *"the model got smart on its own — here's the same agent behavior, scripted"* and run:
+
+```bash
+docker compose run --rm simulator --scenario loop
+docker compose run --rm simulator --scenario flaky
+```
+
+Same OpenTelemetry events, same Kafka, same SQL, same hook — Grafana lights up the same way.
+
+## If something else breaks
+
+- **No events in Grafana:** check the Collector — `docker compose logs otel-collector | tail` — then terminal **Q7** (raw payloads off Kafka).
+- **Grafana panels empty but SQL works:** present from the terminal (Q1, Q3).
+- **Anything worse:** play the backup video.
+- **Schema errors after re-runs:** `scripts/reset.sh`.

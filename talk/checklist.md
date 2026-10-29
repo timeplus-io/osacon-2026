@@ -10,8 +10,11 @@ Event logistics (date, venue, slot) come from the organizers' email; this list o
 - [ ] Rehearsed end to end with a timer at least twice (target 19:30)
 
 ## Demo
-- [ ] `docker compose pull && docker compose build agent` done on the presenting laptop
-- [ ] Full demo runs with Wi-Fi off
+- [ ] `.env` filled in (ANTHROPIC_API_KEY, OPENAI_API_KEY); never shown on screen
+- [ ] `docker compose pull && docker compose build && docker compose up -d` done on the presenting laptop
+- [ ] Each live scenario run once with each agent; Grafana dashboard shows decisions
+- [ ] Simulator fallback works with Wi-Fi off (`docker compose run --rm simulator --scenario loop`)
+- [ ] Phone hotspot ready (live agents need the model API)
 - [ ] Backup recording of the demo on the laptop and on USB
 - [ ] `demo-runbook.md` printed or on a phone
 

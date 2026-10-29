@@ -1,49 +1,49 @@
 -- ============================================================================
 -- 01_streams.sql — the streams that make up the loop
 --
---   otlp_raw           OTLP/JSON trace payloads, one ExportTraceServiceRequest per row
---   agent_spans        flattened spans (one row per span, GenAI semantic conventions)
---   agent_session_log  the agent's own append-only session log
+--   otlp_logs_raw      OTLP/JSON log payloads from Kafka (one ExportLogsServiceRequest per row)
+--   agent_events       one row per agent event: tool calls, model calls, prompts
+--                      (Claude Code, Codex, or the offline simulator — one schema)
+--   agent_session_log  the agent's own append-only log, written by its hooks
 --   agent_alerts       what the detectors found
---   agent_actions      what the policy decided — the agent subscribes to this
+--   agent_actions      what the policy decided — the agent's hook reads this
 -- ============================================================================
 
-CREATE STREAM IF NOT EXISTS otlp_raw
+CREATE STREAM IF NOT EXISTS otlp_logs_raw
 (
   raw string
 )
-COMMENT 'Raw OTLP/JSON trace payloads (from Kafka via the OTel Collector, or posted directly)';
+COMMENT 'Raw OTLP/JSON log payloads, copied from the Kafka topic otlp_logs';
 
-CREATE STREAM IF NOT EXISTS agent_spans
+CREATE STREAM IF NOT EXISTS agent_events
 (
-  start_time      datetime64(3),
-  duration_ms     float64,
-  service         string,
-  trace_id        string,
-  span_id         string,
-  parent_span_id  string,
-  span_name       string,
-  status_code     int8,          -- OTLP status: 0 unset, 1 ok, 2 error
-  session_id      string,        -- gen_ai.conversation.id
-  agent_name      string,        -- gen_ai.agent.name
-  operation       string,        -- gen_ai.operation.name: invoke_agent | chat | execute_tool
-  model           string,        -- gen_ai.request.model
-  tool_name       string,        -- gen_ai.tool.name
-  tool_args       string,        -- gen_ai.tool.call.arguments
-  input_tokens    uint32,        -- gen_ai.usage.input_tokens
-  output_tokens   uint32,        -- gen_ai.usage.output_tokens
-  attributes      map(string, string)
+  event_time         datetime64(3),
+  agent              string,    -- claude-code | codex | simulator
+  session_id         string,    -- Claude Code session.id / Codex conversation.id
+  event              string,    -- tool_result | api_request | sse_event | user_prompt | api_error | ...
+  tool_name          string,
+  tool_args          string,    -- raw tool input / arguments (JSON)
+  call_target        string,    -- normalized: the command, path, or args the call is "about"
+  success            bool,
+  duration_ms        float64,
+  model              string,
+  input_tokens       uint64,
+  output_tokens      uint64,
+  cache_read_tokens  uint64,
+  cost_usd           float64,
+  error              string,
+  attributes         map(string, string)
 )
-COMMENT 'One row per OTel span emitted by the agent';
+COMMENT 'Normalized agent telemetry (from OpenTelemetry log events)';
 
 CREATE STREAM IF NOT EXISTS agent_session_log
 (
   session_id  string,
-  seq         uint32,
-  event_type  string,   -- user_goal | llm_decision | tool_call | tool_result | control | final_answer | halted
+  agent       string,
+  event_type  string,   -- user_prompt | tool_call | control
   content     string
 )
-COMMENT 'Append-only session log written by the agent runtime itself';
+COMMENT 'Append-only session log written by the agent''s own hooks';
 
 CREATE STREAM IF NOT EXISTS agent_alerts
 (
@@ -60,6 +60,6 @@ CREATE STREAM IF NOT EXISTS agent_actions
   session_id  string,
   action      string,   -- interrupt | halt
   reason      string,
-  hint        string    -- injected back into the agent''s context on interrupt
+  hint        string    -- handed to the agent as the reason its next tool call was blocked
 )
 COMMENT 'Decisions fed back to the running agent';

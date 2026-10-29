@@ -1,0 +1,9 @@
+# Codex system config for the demo container (/etc/codex/config.toml)
+
+[otel]
+environment = "osacon-demo"
+log_user_prompt = true
+exporter = { otlp-http = { endpoint = "http://otel-collector:4318/v1/logs", protocol = "binary" } }
+
+[projects."/workspace"]
+trust_level = "trusted"

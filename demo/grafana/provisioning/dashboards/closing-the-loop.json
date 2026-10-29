@@ -1,0 +1,167 @@
+{
+  "uid": "closing-the-loop",
+  "title": "Closing the Loop \u2014 agents \u00d7 Proton",
+  "editable": true,
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "tags": [
+    "osacon",
+    "proton"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Decisions sent back to agents (live)",
+      "type": "table",
+      "datasource": {
+        "type": "timeplus-proton-datasource",
+        "uid": "proton-ds"
+      },
+      "description": "Streaming query: a row appears the moment the policy decides. The agent's PreToolUse hook reads the same stream.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "timeplus-proton-datasource",
+            "uid": "proton-ds"
+          },
+          "refId": "A",
+          "sql": "SELECT _tp_time AS time, session_id, action, reason FROM agent_actions"
+        }
+      ],
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "time",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Tool calls (live)",
+      "type": "table",
+      "datasource": {
+        "type": "timeplus-proton-datasource",
+        "uid": "proton-ds"
+      },
+      "description": "Every tool call from Claude Code, Codex, or the simulator, parsed from their OpenTelemetry log events.",
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 14,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "timeplus-proton-datasource",
+            "uid": "proton-ds"
+          },
+          "refId": "A",
+          "sql": "SELECT _tp_time AS time, agent, session_id, tool_name, call_target, success FROM agent_events WHERE event = 'tool_result'"
+        }
+      ],
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "time",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "title": "Alerts by detector",
+      "type": "barchart",
+      "datasource": {
+        "type": "timeplus-proton-datasource",
+        "uid": "proton-ds"
+      },
+      "description": "Historical query over the last hour (refreshes every 5s).",
+      "gridPos": {
+        "x": 14,
+        "y": 7,
+        "w": 10,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "timeplus-proton-datasource",
+            "uid": "proton-ds"
+          },
+          "refId": "A",
+          "sql": "SELECT detector, count() AS alerts FROM table(agent_alerts) WHERE _tp_time > now() - 1h GROUP BY detector ORDER BY detector"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Tool calls per 5s, by agent (live)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "timeplus-proton-datasource",
+        "uid": "proton-ds"
+      },
+      "description": "Streaming tumbling-window aggregation.",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "timeplus-proton-datasource",
+            "uid": "proton-ds"
+          },
+          "refId": "A",
+          "sql": "SELECT window_end AS time, count_if(agent = 'claude-code') AS claude_code, count_if(agent = 'codex') AS codex, count_if(agent = 'simulator') AS simulator FROM tumble(agent_events, 5s) WHERE event = 'tool_result' GROUP BY window_end"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Sessions",
+      "type": "table",
+      "datasource": {
+        "type": "timeplus-proton-datasource",
+        "uid": "proton-ds"
+      },
+      "description": "Historical query: spend and activity per session over the last hour.",
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "timeplus-proton-datasource",
+            "uid": "proton-ds"
+          },
+          "refId": "A",
+          "sql": "SELECT session_id, any(agent) AS agent, count_if(event = 'tool_result') AS tool_calls, count_if(event = 'tool_result' AND NOT success) AS failed_calls, sum(input_tokens + output_tokens) AS total_tokens, round(sum(cost_usd), 3) AS total_cost_usd, max(_tp_time) AS last_seen FROM table(agent_events) WHERE _tp_time > now() - 1h GROUP BY session_id ORDER BY last_seen DESC LIMIT 20"
+        }
+      ]
+    }
+  ]
+}

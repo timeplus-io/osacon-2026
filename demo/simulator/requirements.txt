@@ -1,4 +1,2 @@
 opentelemetry-sdk==1.45.2
 opentelemetry-exporter-otlp-proto-http==1.45.2
-proton-driver==0.3.0
-requests>=2.31

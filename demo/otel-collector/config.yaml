@@ -1,5 +1,9 @@
 # OpenTelemetry Collector (contrib 0.111.0)
-# OTLP in -> Kafka out, encoded as OTLP/JSON so Proton can parse it with SQL.
+#
+# Claude Code, Codex and the simulator export their activity as OTLP *log
+# events*. The Collector writes each batch to Kafka as OTLP/JSON; Proton reads
+# the topic with a Kafka external stream. Kafka is the bridge — Proton OSS has
+# no OTLP receiver of its own.
 
 receivers:
   otlp:
@@ -11,21 +15,28 @@ receivers:
 
 processors:
   batch:
-    timeout: 200ms          # seconds matter here; don't sit on spans
+    timeout: 200ms          # seconds matter here; don't sit on events
     send_batch_size: 256
 
 exporters:
-  kafka:
+  kafka/logs:
     brokers: ["kafka:9092"]
     protocol_version: 2.6.0
-    topic: otlp_spans
+    topic: otlp_logs
     encoding: otlp_json
   debug:
     verbosity: basic
 
 service:
   pipelines:
-    traces:
+    logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [kafka, debug]
+      exporters: [kafka/logs, debug]
+    # accepted so agents that also export metrics/traces don't log errors; not used by the demo
+    metrics:
+      receivers: [otlp]
+      exporters: [debug]
+    traces:
+      receivers: [otlp]
+      exporters: [debug]

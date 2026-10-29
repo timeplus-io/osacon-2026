@@ -1,32 +1,58 @@
-# Closing the Loop with Open Source — demo stack
+# Closing the Loop with Open Source — the whole demo in one compose file
 #
-#   agent ──OTLP/HTTP──▶ otel-collector ──kafka (otlp_json)──▶ kafka:otlp_spans
-#                                                               │
-#   agent ◀──streaming query── proton ◀──external stream────────┘
-#     │                          │
-#     └──HTTP ingest (session log)┘──▶ kafka:agent_actions (for anyone else)
+#   claude / codex ──OTel log events──▶ otel-collector ──otlp_json──▶ kafka:otlp_logs
+#         ▲                                                               │
+#         │  PreToolUse hook reads agent_actions                          ▼
+#         └──────────────────────────────────────────────  proton: parse → detect → policy
+#                                                                 │
+#                                                 grafana ◀───────┘ (live streaming panels)
 #
-#   docker compose up -d                          # proton, kafka, collector, schema
-#   docker compose run --rm agent --scenario loop # run an agent
+#   cp .env.example .env            # add ANTHROPIC_API_KEY and/or OPENAI_API_KEY
+#   docker compose up -d            # proton, kafka, collector, grafana, schema
+#   docker compose run --rm claude  # Claude Code in the demo workspace
+#   docker compose run --rm codex   # Codex in the demo workspace
+#   docker compose run --rm simulator --scenario loop   # offline, no API key
 #
-# Everything here is open source and runs with no outbound network once the
-# images are pulled.
+#   Grafana: http://localhost:3000   (no login)
 
 name: osacon-closing-the-loop
 
+x-agent: &agent
+  build:
+    context: .
+    dockerfile: agents/Dockerfile
+  image: osacon-demo-agents
+  profiles: ["agents"]
+  stdin_open: true
+  tty: true
+  volumes:
+    - ./workspace:/workspace
+  depends_on:
+    proton-init:
+      condition: service_completed_successfully
+    otel-collector:
+      condition: service_started
+
+x-agent-env: &agent-env
+  PROTON_QUERY_URL: http://proton:8123
+  PROTON_INGEST_URL: http://proton:3218
+  OTLP_ENDPOINT: http://otel-collector:4318
+
 services:
+  # ---------------------------------------------------------------- engine
   proton:
     image: d.timeplus.com/timeplus-io/proton:latest   # tested with Proton v3.0.31
     ports:
-      - "8463:8463"   # native protocol (proton client, proton-driver)
-      - "3218:3218"   # HTTP: ingest API + streaming queries
-      - "8123:8123"   # HTTP: batch queries
+      - "8463:8463"   # native protocol (proton client)
+      - "3218:3218"   # HTTP ingest API + streaming queries
+      - "8123:8123"   # HTTP batch queries (used by the agent hooks)
     healthcheck:
       test: ["CMD", "proton", "client", "-q", "SELECT 1"]
       interval: 3s
       timeout: 5s
       retries: 30
 
+  # ---------------------------------------------------------------- transport
   kafka:
     image: apache/kafka:3.8.0
     environment:
@@ -59,7 +85,7 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        for t in otlp_spans agent_actions; do
+        for t in otlp_logs agent_actions; do
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic $$t --partitions 1 --replication-factor 1
         done
     restart: "no"
@@ -76,7 +102,7 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
-  # Applies sql/*.sql (idempotent: everything is CREATE ... IF NOT EXISTS).
+  # Applies sql/0*.sql (idempotent). Budgets come from .env.
   proton-init:
     image: d.timeplus.com/timeplus-io/proton:latest
     depends_on:
@@ -84,32 +110,68 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+    environment:
+      PROTON_HOST: proton
+      SQL_DIR: /sql
+      BUDGET_USD: ${BUDGET_USD:-0.50}
+      BUDGET_TOKENS: ${BUDGET_TOKENS:-200000}
     volumes:
       - ./sql:/sql:ro
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        set -e
-        for f in /sql/0*.sql; do
-          echo "applying $$f"
-          proton client --host proton --multiquery < "$$f"
-        done
-        echo "schema ready"
+      - ./scripts/apply-sql.sh:/apply-sql.sh:ro
+    entrypoint: ["/bin/bash", "/apply-sql.sh"]
     restart: "no"
 
-  # Run on demand:  docker compose run --rm agent --scenario loop
-  agent:
-    build: ./agent
-    profiles: ["agent"]
+  # ---------------------------------------------------------------- presentation
+  grafana:
+    image: grafana/grafana-oss:11.3.1
     environment:
-      TELEMETRY_MODE: collector
-      PROTON_HOST: proton
-      PROTON_PORT: "8463"
-      PROTON_HTTP: http://proton:3218
-      OTLP_ENDPOINT: http://otel-collector:4318
-      FORCE_COLOR: "1"
+      GF_INSTALL_PLUGINS: "https://github.com/timeplus-io/proton-grafana-source/releases/download/v2.1.5/timeplus-proton-datasource-2.1.5.zip;timeplus-proton-datasource"
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: timeplus-proton-datasource
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/closing-the-loop.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
     depends_on:
       proton-init:
         condition: service_completed_successfully
-      otel-collector:
-        condition: service_started
+
+  # ---------------------------------------------------------------- agents (run on demand)
+  claude:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      CLAUDE_CODE_ENABLE_TELEMETRY: "1"
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_LOGS_EXPORT_INTERVAL: "500"       # ms; default is 5s
+      OTEL_LOG_TOOL_DETAILS: "1"             # include tool_input (needed for loop detection)
+      OTEL_LOG_USER_PROMPTS: "1"
+      OTEL_METRICS_INCLUDE_SESSION_ID: "true"
+    command: ["claude"]
+
+  codex:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    # the container is the sandbox
+    command: ["codex", "--sandbox", "danger-full-access", "--ask-for-approval", "never"]
+
+  simulator:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      FORCE_COLOR: "1"
+    entrypoint: ["python3", "/opt/demo/simulator/simulator.py"]
+    command: ["--scenario", "loop"]
+
+volumes:
+  grafana-data:

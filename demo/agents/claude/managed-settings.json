@@ -1,0 +1,35 @@
+{
+  "$comment": "Claude Code managed settings for the demo container (/etc/claude-code/managed-settings.json). OTel export is configured with environment variables in docker-compose.yml.",
+  "permissions": {
+    "allow": [
+      "Bash(./check_deploy.sh:*)",
+      "Bash(./fetch_metrics.sh:*)",
+      "Bash(sleep:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Edit"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+    ]
+  }
+}

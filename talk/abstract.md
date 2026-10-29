@@ -2,7 +2,7 @@
 
 **Speaker:** Gang Tao, Timeplus
 **Event:** OSA Con 2026 — November 2, 2026, AWS Builder Loft, San Francisco
-**Format:** 20-minute talk + 5 minutes Q&A, live demo
+**Format:** 20-minute talk + 5 minutes Q&A, live demo with Claude Code and Codex
 **Track fit:** open source analytics × AI agents; real-time analytics
 
 ---
@@ -19,11 +19,15 @@ Attendees will leave with a reference architecture built entirely on open-source
 
 AI agents produce telemetry that is larger, longer, and branchier than anything a request/response system emits, and they can act on it themselves. This talk closes that loop with open source: OpenTelemetry for the signal, an append-only stream as the agent's session log, and Proton's streaming SQL to detect loops, cost spikes, and drift in seconds and feed decisions back to the agent. Live demo included.
 
-## Open-source components shown
+## What's on screen
 
 | Component | Role | License |
 |---|---|---|
-| [OpenTelemetry](https://opentelemetry.io) SDK + Collector | Agent spans (GenAI semantic conventions), OTLP → Kafka | Apache 2.0 |
-| [Apache Kafka](https://kafka.apache.org) (KRaft, single node) | Transport for spans and actions | Apache 2.0 |
+| [OpenTelemetry](https://opentelemetry.io) Collector | Agent log events → Kafka (OTLP/JSON) | Apache 2.0 |
+| [Apache Kafka](https://kafka.apache.org) (KRaft, single node) | Bridge for events in and decisions out | Apache 2.0 |
 | [Proton](https://github.com/timeplus-io/proton) | Streaming SQL: parse, detect, decide | Apache 2.0 |
-| [proton-driver](https://github.com/timeplus-io/proton-python-driver) | Agent's live subscription to decisions | MIT |
+| [Grafana](https://github.com/grafana/grafana) + [Proton data source](https://github.com/timeplus-io/proton-grafana-source) | Live dashboard | AGPL-3.0 / Apache 2.0 |
+| [Codex CLI](https://github.com/openai/codex) | Agent being observed | Apache 2.0 |
+| [Claude Code](https://github.com/anthropics/claude-code) | Agent being observed | proprietary (client only) |
+
+The agents are the clients being observed; the loop works for any agent that exports OpenTelemetry and supports pre-tool-call hooks.

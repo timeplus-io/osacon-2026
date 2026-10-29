@@ -1,0 +1,14 @@
+{
+  "description": "OSA Con demo: consult Proton's decision stream before every tool call (system layer, so Codex treats it as managed/trusted).",
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=codex python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=codex python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=codex python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+    ]
+  }
+}
