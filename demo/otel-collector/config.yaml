@@ -1,0 +1,31 @@
+# OpenTelemetry Collector (contrib 0.111.0)
+# OTLP in -> Kafka out, encoded as OTLP/JSON so Proton can parse it with SQL.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 200ms          # seconds matter here; don't sit on spans
+    send_batch_size: 256
+
+exporters:
+  kafka:
+    brokers: ["kafka:9092"]
+    protocol_version: 2.6.0
+    topic: otlp_spans
+    encoding: otlp_json
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [kafka, debug]
