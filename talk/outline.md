@@ -1,7 +1,7 @@
 # Talk outline and speaker notes
 
 **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to Agent Action**
-20 minutes + 5 minutes Q&A · 13 slides · ~5 minutes of live demo with Claude Code and Codex
+20 minutes + 5 minutes Q&A · 11 main slides + 4 backup · ~6 minutes of live demo (simulator by default; live Claude Code/Codex if rehearsals are reliable)
 
 Ground rules for this venue (from the organizers): open source only, no commercial content, the room is livestreamed and recorded. The infrastructure on screen is all OSS (OpenTelemetry, Kafka, Proton, Grafana). The agents are the *clients* being observed — Codex is open source (Apache-2.0); Claude Code is not, so say once that the loop works the same for any agent that exports OTel and has hooks. No customer names; nothing confidential on slides, terminals, or in `.env`.
 
@@ -14,18 +14,21 @@ Ground rules for this venue (from the organizers): open source only, no commerci
 | 1 | Title | 0:30 | 0:30 |
 | 2 | Agents can act on their own telemetry | 1:00 | 1:30 |
 | 3 | What coding agents already emit | 1:30 | 3:00 |
-| 4 | Failures that happen in seconds | 1:15 | 4:15 |
-| 5 | The loop | 0:45 | 5:00 |
-| 6 | Signal: OTel → Collector → Kafka | 1:15 | 6:15 |
-| 7 | Engine: Proton, two vocabularies, one schema | 1:30 | 7:45 |
-| 8 | A detector is a materialized view | 1:30 | 9:15 |
-| 9 | The policy is SQL; the hook delivers it | 1:15 | 10:30 |
-| 10 | **Live demo** | 5:00 | 15:30 |
-| 11 | What held up, what didn't | 2:30 | 18:00 |
-| 12 | Open problems | 1:15 | 19:15 |
-| 13 | Takeaways + repo | 0:45 | 20:00 |
+| 4 | Three failures that burn money in seconds | 1:30 | 4:30 |
+| 5 | The loop (architecture; Kafka bridge + one-schema view in one line) | 2:00 | 6:30 |
+| 6 | A detector is a materialized view | 2:00 | 8:30 |
+| 7 | The policy is SQL; the hook delivers it | 2:00 | 10:30 |
+| 8 | **Live demo** | 6:00 | 16:30 |
+| 9 | What held up, what didn't, what's still open | 2:00 | 18:30 |
+| 10 | Takeaway | 0:45 | 19:15 |
+| 11 | Run it yourself (QR) | 0:30 | 19:45 |
+| — | *Backup: divider, configuration, parse view, open problems* | Q&A only | |
 
-If the demo runs long, cut slide 12 to one sentence. If a live agent doesn't cooperate, switch to the simulator (same pipeline) — see `demo-runbook.md`. Don't debug on stage.
+Cut from the main flow to fit 20 minutes: the configuration slide and the parse-SQL slide (one sentence each on the architecture slide now), and the standalone open-problems slide (now a one-line "still open" strip on the lessons slide). All three are in the backup section for Q&A.
+
+If the demo runs long, drop the "still open" strip to one sentence. If a live agent doesn't cooperate, switch to the simulator (same pipeline) — see `demo-runbook.md`. Don't debug on stage.
+
+The per-slide notes below keep the original numbering (1–13); the deck order is above.
 
 ---
 
