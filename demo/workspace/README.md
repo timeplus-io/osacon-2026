@@ -1,11 +1,10 @@
 # checkout-api ops workspace
 
-Runbooks and helper scripts for the `checkout-api` service (a fictional service
-used for the OSA Con 2026 demo).
+Helper scripts for day-to-day operation of the `checkout-api` service.
 
 | Script | What it does |
 |---|---|
-| `./check_deploy.sh` | Shows the status of the current deploy |
+| `./check_deploy.sh [id]` | Shows the status of a deploy via the deploy service (default: the one in progress) |
 | `./fetch_metrics.sh` | Pulls the last hour of error-rate metrics from the metrics API |
 
 Other material:

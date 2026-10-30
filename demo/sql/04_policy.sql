@@ -13,6 +13,10 @@
 -- same session is a halt, not another interrupt — two hints didn't work. With
 -- the detectors re-firing as a streak grows, an agent that ignores the hint
 -- is halted at the 12th identical call (or 9th failure).
+--
+-- Drop this view and the stream is observability only: alerts still fire, no
+-- decision reaches the agent. Create it again and the loop is closed from the
+-- next alert on (scripts/policy.sh off|on).
 -- ============================================================================
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_policy INTO agent_actions AS

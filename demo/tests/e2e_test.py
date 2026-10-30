@@ -47,6 +47,23 @@ def q(sql: str, **params) -> list[dict]:
         return [json.loads(x) for x in r.read().decode().splitlines() if x.strip()]
 
 
+def ddl(sql: str) -> None:
+    """Run a statement with no result set (CREATE / DROP)."""
+    req = urllib.request.Request(f"{QUERY}/", data=sql.encode(), method="POST")
+    urllib.request.urlopen(req, timeout=10).read()
+
+
+def alert_count(sid: str, detector: str, n: int, wait_s: float = 8.0) -> int:
+    """Number of alerts of one detector for a session; polls until at least n."""
+    deadline = time.time() + wait_s
+    while True:
+        got = q("SELECT count() AS n FROM table(agent_alerts) WHERE session_id = {s:string} AND detector = {d:string}",
+                s=sid, d=detector)[0]["n"]
+        if int(got) >= n or time.time() > deadline:
+            return int(got)
+        time.sleep(0.5)
+
+
 def detectors(sid: str, want: set[str] | None = None, wait_s: float = 8.0) -> set[str]:
     """Alerts for a session; polls (up to wait_s) until `want` shows up, since
     freshly written rows take a moment to become visible to table() queries."""
@@ -217,6 +234,25 @@ def part3_targeting(send, run: str) -> None:
     proton_gate.handle({"hook_event_name": "UserPromptSubmit", "session_id": sid,
                         "prompt": "[resume] the deploy is fixed now, check it again"}, "claude-code")
     check("resume: calls run again, including the one that looped", pre(sid, "./check_deploy.sh") is None)
+
+    # open loop, then close it (the stage beat): without mv_policy alerts fire but nothing reaches the
+    # agent; once the view is created again, the detector's next alert (it fires on every 4th identical
+    # call, not only at 4/8/12) becomes a decision and the call is blocked.
+    sid = f"cc-{run}-open-closed"
+    ddl("DROP VIEW IF EXISTS mv_policy")
+    try:
+        loop(sid, "./check_deploy.sh", 8)
+        check("open loop: alerts fire without mv_policy", alert_count(sid, "tool_loop", 2) == 2)
+        check("open loop: no decision, the call is allowed",
+              actions(sid, 1, wait_s=2) == [] and pre(sid, "./check_deploy.sh") is None)
+    finally:
+        ddl((DEMO / "sql" / "04_policy.sql").read_text())
+    loop(sid, "./check_deploy.sh", 4)                        # 12th identical call: first alert the new view sees
+    v = until_denied(lambda: pre(sid, "./check_deploy.sh"))
+    check("closed loop: the first alert after mv_policy is back blocks the call",
+          "in a row" in reason(v) and actions(sid, 1)[0]["action"] == "interrupt", reason(v)[:80])
+    loop(sid, "./check_deploy.sh", 8)                        # 16th and 20th: keeps firing past the old 12 cap
+    check("loop detector keeps firing on every 4th identical call", alert_count(sid, "tool_loop", 5) == 5)
 
 
 def main() -> int:

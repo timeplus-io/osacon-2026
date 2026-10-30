@@ -4,6 +4,7 @@ Talk: **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to
 
 Deck (Google Slides): https://docs.google.com/presentation/d/1BJQw398uOurzPfrzBuMDtBnCwht_Q3Zo_JtTvmJarbA/edit
 Slides 8 and 9 show SQL from `demo/sql/03_detectors.sql` and `04_policy.sql`. **If you change those files, update the slides too** (or tell whoever owns the deck).
+**Deck is out of date as of 2026-10-30:** slide 8 must show `lags(call_key, 1, 100)` and `WHERE streak >= 4 AND streak % 4 = 0` (was `1, 12` / `streak IN (4, 8, 12)`).
 
 ---
 
@@ -24,11 +25,11 @@ Claude Code / Codex ──OTel log events──▶ Collector ──otlp_json─�
 ### Detectors (`sql/03_detectors.sql`), all `PARTITION BY session_id` with `lags()`
 | Detector | Fires when | Alert carries |
 |---|---|---|
-| `tool_loop` | same tool + same normalized target, streak = **4, 8, 12** | `tool_name`, `target` |
+| `tool_loop` | same tool + same normalized target, streak = **4, 8, 12, ...** (every 4th; `lags` window 100) | `tool_name`, `target` |
 | `tool_errors` | failed calls in a row, streak = **3, 6, 9** | `tool_name`, `target` |
 | `budget` | session spend reaches each **multiple** of `$BUDGET_USD` or `BUDGET_TOKENS` (whichever comes first) | — |
 
-The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 12))`.
+The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 100))`. Firing on every 4th call (not only 4/8/12) is what makes the open-loop/closed-loop stage beat work: `scripts/policy.sh off|on` drops / recreates `mv_policy`, and a view created late gets its first alert within four calls.
 
 ### Policy (`sql/04_policy.sql`)
 - `budget` → `halt`
@@ -70,10 +71,14 @@ demo/
                             claude/managed-settings.json (permissions + hooks, timeout 10 s),
                             codex/config.toml ([otel] otlp-http), codex/hooks.json
   simulator/simulator.py    scripted agent: emits the same OTel events, calls proton_gate.handle()
-  workspace/                demo files: check_deploy.sh (stuck deploy #4182), fetch_metrics.sh (exit 7),
+  fakes/ops_api.py          stdlib HTTP stand-in for the deploy service (always IN_PROGRESS, counters move)
+                            and the metrics API (always 503 "retry"); compose service ops-api, aliases
+                            deploy-api and metrics.internal. NOT in /workspace: agents can't read it.
+  workspace/                check_deploy.sh and fetch_metrics.sh are thin curl clients of ops-api;
                             metrics-cache/, postmortems/ (fictional)
   grafana/provisioning/     Proton datasource + dashboard "closing-the-loop"
-  scripts/apply-sql.sh      apply schema (idempotent); reset.sh (teardown + reapply); resume.sh
+  scripts/apply-sql.sh      apply schema (idempotent); reset.sh (teardown + reapply); resume.sh;
+                            policy.sh off|on (drop / recreate mv_policy: open or close the loop on stage)
   tests/e2e_test.py         25 checks through Kafka; mini_collector.py (OTLP → Kafka stand-in); otlp_fixtures.py
 docs/architecture.md        architecture, schema mapping, "How a decision reaches the agent", recovery
 talk/                       abstract, outline (timings, notes, Q&A), demo-runbook, checklist, assets (icons, logos)
@@ -141,6 +146,12 @@ Proton gotchas we hit:
 7. **Timing:** run the demo end to end against the clock. The budget is 5:30 for the demo. The simulator is the on-stage default; use a live agent only if it reliably triggers in rehearsal.
 
 ---
+
+### Findings from the first live Claude Code run (2026-10-30, Opus 5.5)
+- The model read `check_deploy.sh`, saw the hardcoded "never finishes" demo script, and refused to poll. Fixed: the scripts are now thin clients of the `ops-api` container (`fakes/ops_api.py`), which the agent can't read.
+- Asked to check "about every 10 seconds", it wrote **one** `while true; do ./check_deploy.sh; sleep 10; done` Bash call with `run_in_background: true` and answered immediately. One tool call, so `tool_loop` can't fire. Fixes: the prompt now says "run each check as its own command, not a loop or a background job", and managed settings set `permissions.defaultMode = "default"` so a command outside the allowlist prompts the presenter (the session had started in `auto` mode, which accepted the loop). Decline the prompt and the model falls back to single calls. Re-verify.
+- The dashboard's "live" tables ran plain streaming queries; with `refresh: 5s` every refresh restarted the query and the rows vanished ("tool calls show, then gone"). Fixed with `SETTINGS seek_to='-15m'` on the three live panels.
+- **The presenting laptop's own Claude Code exports to `localhost:4318`** (`~/.claude/settings.json` sets `OTEL_EXPORTER_OTLP_ENDPOINT`), so every local session lands in the demo streams and in Grafana; the budget policy halted the dev session twice. Before going on stage, disable that or point it elsewhere, then `scripts/reset.sh`.
 
 ## 5. Open ideas (not started)
 

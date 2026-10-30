@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Demo: an upstream that is down. Looks transient, so agents retry it.
-echo "fetching error_rate{service=\"checkout-api\"}[1h] from https://metrics.internal ..." >&2
-sleep 1
-echo "curl: (7) Failed to connect to metrics.internal port 443 after 1002 ms: Connection refused" >&2
-echo "hint: the metrics proxy restarts occasionally; retrying usually works" >&2
-exit 7
+# Pull the last hour of error-rate metrics for checkout-api from the metrics API.
+# Output: CSV (timestamp,service,error_rate_pct).
+set -uo pipefail
+METRICS_API="${METRICS_API:-http://metrics.internal:8080}"
+query='error_rate{service="checkout-api"}[1h]'
+echo "fetching $query from $METRICS_API ..." >&2
+curl -sS --fail-with-body --max-time 10 -G "$METRICS_API/api/v1/query" \
+  --data-urlencode "query=$query" --data-urlencode "format=csv"

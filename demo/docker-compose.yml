@@ -8,7 +8,7 @@
 #                                                 grafana ◀───────┘ (live streaming panels)
 #
 #   cp .env.example .env            # add ANTHROPIC_API_KEY and/or OPENAI_API_KEY
-#   docker compose up -d            # proton, kafka, collector, grafana, schema
+#   docker compose up -d            # proton, kafka, collector, grafana, schema, ops-api
 #   docker compose run --rm claude  # Claude Code in the demo workspace
 #   docker compose run --rm codex   # Codex in the demo workspace
 #   docker compose run --rm simulator --scenario loop   # offline, no API key
@@ -31,6 +31,8 @@ x-agent: &agent
     proton-init:
       condition: service_completed_successfully
     otel-collector:
+      condition: service_started
+    ops-api:
       condition: service_started
 
 x-agent-env: &agent-env
@@ -139,6 +141,19 @@ services:
     depends_on:
       proton-init:
         condition: service_completed_successfully
+
+  # ---------------------------------------------------------------- the "internal services"
+  # Stand-in for the deploy service and the metrics API that the workspace
+  # scripts call (fakes/ops_api.py). Not mounted into /workspace, so an agent
+  # can't read it and discover that the deploy never finishes.
+  ops-api:
+    image: python:3.12-alpine
+    volumes:
+      - ./fakes/ops_api.py:/ops_api.py:ro
+    command: ["python3", "-u", "/ops_api.py"]
+    networks:
+      default:
+        aliases: [deploy-api, metrics.internal]
 
   # ---------------------------------------------------------------- agents (run on demand)
   claude:
