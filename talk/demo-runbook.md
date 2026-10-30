@@ -28,7 +28,7 @@ docker compose up -d
 scripts/reset.sh          # empty streams, fresh schema, budgets from .env
 ```
 
-Open http://localhost:3000/d/closing-the-loop?kiosk&refresh=5s
+Open http://localhost:3000/d/closing-the-loop?kiosk (no auto-refresh: every panel streams)
 
 ## Screen layout
 
