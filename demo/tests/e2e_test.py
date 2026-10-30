@@ -236,25 +236,27 @@ def part3_targeting(send, run: str) -> None:
     check("resume: calls run again, including the one that looped", pre(sid, "./check_deploy.sh") is None)
 
     # open loop, then close it (the stage beat): with mv_policy PAUSED, alerts pile up and nothing reaches the
-    # agent; RESUME replays the backlog, so every alert that fired while paused becomes a decision at once and
-    # the agent's next identical call is denied. Two alerts in the backlog -> two interrupts (a third would
-    # escalate to a halt, which is why the runbook says to resume at tool_loop = 2).
+    # agent; RESUME replays the backlog, so every alert that fired while paused becomes an interrupt at once and
+    # the agent's next identical call is denied. Replayed alerts are not hints the agent could have seen, so
+    # they don't count toward the halt: only live alerts after the resume do.
     sid = f"cc-{run}-open-closed"
     ddl("SYSTEM PAUSE MATERIALIZED VIEW mv_policy")
     try:
-        loop(sid, "./check_deploy.sh", 8)
-        check("open loop: alerts fire while mv_policy is paused", alert_count(sid, "tool_loop", 2) == 2)
+        loop(sid, "./check_deploy.sh", 16)                   # alerts at 4, 8, 12, 16 while paused
+        check("open loop: alerts fire while mv_policy is paused", alert_count(sid, "tool_loop", 4) == 4)
         check("open loop: no decision, the call is allowed",
               actions(sid, 1, wait_s=2) == [] and pre(sid, "./check_deploy.sh") is None)
+        time.sleep(2.5)                                       # make the backlog clearly older than 'live'
     finally:
         ddl("SYSTEM RESUME MATERIALIZED VIEW mv_policy")
-    got = [a["action"] for a in actions(sid, 2)]
-    check("closed loop: resume replays the backlog into decisions", got == ["interrupt", "interrupt"], str(got))
+    got = [a["action"] for a in actions(sid, 4)]
+    check("closed loop: resume replays the backlog into interrupts, no halt", got == ["interrupt"] * 4, str(got))
     v = until_denied(lambda: pre(sid, "./check_deploy.sh"))
     check("closed loop: the next identical call is denied with the hint", "in a row" in reason(v), reason(v)[:80])
-    check("closed loop: one denial consumed both replayed interrupts", pre(sid, "./check_deploy.sh") is None)
-    loop(sid, "./check_deploy.sh", 12)                       # 12th..20th identical call: still firing (every 4th)
-    check("loop detector keeps firing on every 4th identical call", alert_count(sid, "tool_loop", 5) == 5)
+    check("closed loop: one denial consumed all replayed interrupts", pre(sid, "./check_deploy.sh") is None)
+    loop(sid, "./check_deploy.sh", 12)                       # live alerts at 20, 24, 28: the third live one halts
+    got = [a["action"] for a in actions(sid, 7)]
+    check("closed loop: live alerts after resume still escalate", got[4:] == ["interrupt", "interrupt", "halt"], str(got[4:]))
 
 
 def main() -> int:

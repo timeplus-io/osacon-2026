@@ -12,7 +12,10 @@
 -- Escalation: the third failing pattern in a row (loop / error streak) in the
 -- same session is a halt, not another interrupt — two hints didn't work. With
 -- the detectors re-firing as a streak grows, an agent that ignores the hint
--- is halted at the 12th identical call (or 9th failure).
+-- is halted at the 12th identical call (or 9th failure). Only alerts handled
+-- *live* (within 2 s of being raised) count as hints the agent could have
+-- seen: when a paused view is resumed and replays a backlog, every replayed
+-- alert still becomes an interrupt, but the backlog does not add up to a halt.
 --
 -- SYSTEM PAUSE MATERIALIZED VIEW mv_policy and the stream is observability
 -- only: alerts still fire, no decision reaches the agent. SYSTEM RESUME replays
@@ -27,7 +30,8 @@ SELECT
            escalate,            'halt',
            is_pattern,          'interrupt',
                                 'log') AS action,
-  concat(detector, ': ', detail, if(escalate, ' (third failing pattern this session)', '')) AS reason,
+  concat(detector, ': ', detail, if(escalate, ' (third failing pattern this session)', ''),
+         if(live, '', ' (replayed)')) AS reason,   -- `live` must be projected here: see the note above the subquery
   multi_if(escalate,
              concat('[stream policy] This session has now hit a failing pattern three times (latest: ', evidence, '). ',
                     'Stopping here so a person can take a look. Do not call any more tools; ',
@@ -52,9 +56,12 @@ FROM
   SELECT
     session_id, detector, detail, evidence, tool_name, target AS alert_target,
     detector IN ('tool_loop', 'tool_errors') AS is_pattern,
-    lags(detector, 1, 2) AS prev,            -- this session's previous two alerts
-    is_pattern AND has(['tool_loop', 'tool_errors'], prev[1])
-               AND has(['tool_loop', 'tool_errors'], prev[2]) AS escalate
+    -- Proton 3.0.x: an alias that is used only inside lags() is not evaluated per
+    -- row in a materialized view (it came out constant false). Projecting `live` in
+    -- the outer SELECT (the '(replayed)' tag in `reason`) makes it a real column.
+    date_diff('millisecond', _tp_time, now64(3)) < 2000 AS live,   -- handled as it happened, not replayed
+    lags(if(is_pattern AND live, detector, ''), 1, 2) AS prev,       -- this session's previous two live hints
+    is_pattern AND prev[1] != '' AND prev[2] != '' AS escalate
   FROM agent_alerts
   WHERE severity IN ('high', 'medium')
   PARTITION BY session_id
