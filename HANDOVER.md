@@ -81,7 +81,9 @@ demo/
                             policy.sh off|on (drop / recreate mv_policy: open or close the loop on stage)
   tests/e2e_test.py         25 checks through Kafka; mini_collector.py (OTLP → Kafka stand-in); otlp_fixtures.py
 docs/architecture.md        architecture, schema mapping, "How a decision reaches the agent", recovery
-talk/                       abstract, outline (timings, notes, Q&A), demo-runbook, checklist, assets (icons, logos)
+talk/                       abstract, outline (timings, notes, Q&A), demo-runbook (the one on-stage demo: Claude Code
+                            polling, open loop -> close it), demo-runbook-extras (Codex retry storm, post-mortem,
+                            budget halt: Q&A / hallway only), checklist, assets (icons, logos)
 ```
 
 ---
@@ -139,11 +141,11 @@ Proton gotchas we hit:
 2. **A live Claude Code session** with the polling-loop prompt: does the 5th check get denied and does Claude report the deploy as stuck?
 3. **A live Codex session.** Two unknowns:
    - (a) the exact `tool_name`/`tool_input` shape Codex sends to PreToolUse hooks. Matching falls back to "block" if it can't parse, but check that the target actually matches.
-   - (b) whether Codex keeps retrying or goes straight to `metrics-cache/` (both are fine; see the runbook).
+   - (b) whether Codex keeps retrying or goes straight to `metrics-cache/` (both are fine; see demo-runbook-extras).
 4. **Grafana plugin architecture:** the Proton datasource v2.1.5 zip ships **arm64-only** Linux binaries. That's fine on Apple silicon. On x86, build it from source or use terminal queries.
 5. **`[resume]` in a real session:** confirm Claude Code and Codex both fire UserPromptSubmit after a `continue:false` stop, in the same session.
 6. **Hook timeout behaviour with Proton stopped mid-session:** we expect Claude Code to treat it as non-blocking, and believe Codex does the same.
-7. **Timing:** run the demo end to end against the clock. The budget is 5:30 for the demo. The simulator is the on-stage default; use a live agent only if it reliably triggers in rehearsal.
+7. **Timing:** run the demo end to end against the clock. Only the Claude Code polling demo is on stage (target 4 min, open loop -> close it live); Codex, post-mortem and budget are extras. The simulator is the fallback; use the live agent if it reliably triggers in rehearsal.
 
 ---
 
