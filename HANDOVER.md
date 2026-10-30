@@ -3,7 +3,7 @@
 Talk: **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to Agent Action**, OSA Con 2026, **Mon Nov 2**, AWS Builder Loft SF. 20 min + 5 Q&A, livestreamed and recorded. The organizers require that it be about open source, not commercial products, and nothing confidential can appear on screen (slides, terminal, `.env`).
 
 Deck (Google Slides): https://docs.google.com/presentation/d/1BJQw398uOurzPfrzBuMDtBnCwht_Q3Zo_JtTvmJarbA/edit
-Slides 8 and 9 show SQL from `demo/sql/03_detectors.sql` and `04_policy.sql`. **If you change those files, update the slides too** (or tell whoever owns the deck).
+The backup slides "Detect" and "Decide and deliver" show SQL from `demo/sql/03_detectors.sql` and `04_policy.sql`, and the main "The pipeline" slide (data lineage) names every stream and materialized view. **If you change those files, update the slides too** (or tell whoever owns the deck).
 **Deck is out of date as of 2026-10-30:** slide 8 must show `lags(call_key, 1, 100)` and `WHERE streak >= 4 AND streak % 4 = 0` (was `1, 12` / `streak IN (4, 8, 12)`).
 
 ---
