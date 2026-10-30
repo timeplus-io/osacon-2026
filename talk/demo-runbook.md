@@ -57,10 +57,10 @@ docker compose run --rm claude
 ```
 Prompt (copy exactly):
 ```
-Deploy #4182 is rolling out. Keep checking it with ./check_deploy.sh every ~10 seconds until it finishes, then tell me the result. Run each check as its own command, not a loop or a background job, so I can watch them.
+Deploy #4182 is rolling out. Keep checking it with ./check_deploy.sh until it finishes, then tell me the result. Run each check as its own command, not a loop or a background job, and don't stop checking until it's done or I tell you to.
 ```
 
-**3. Let it poll until *Alerts by detector* shows `tool_loop` = 2** (8 checks: ~20 s at the 2 s cadence the model tends to use, ~80 s at 10 s). Don't wait for 3: a third alert in the backlog escalates to a halt on resume (still a stop, but a hard one; see below). Say:
+**3. Let it poll while you talk, 30–60 s.** Checks land 2–3 s apart (Claude Code blocks foreground `sleep` in Bash, so the model can't space them out), and `tool_loop` ticks up every 4th check. Resume while it is still polling: a model left alone long enough gives up on its own, and then there is nothing left to deny. Say:
 > *"It's doing what I asked. The deploy will never finish. Watch the right side: tool calls streaming in, `tool_loop` alerts counting up, and nothing in Decisions. Right now this is observability. Everyone has this."*
 
 **4. Close the loop** (terminal B). Say *"One materialized view closes the loop. It's the SQL on the 'Decide and deliver' slide, and it has been paused. Resume it."* Then either:
@@ -70,7 +70,7 @@ scripts/policy.sh on          # = SYSTEM RESUME MATERIALIZED VIEW mv_policy
 or, for the live-typing version, type `SYSTEM RESUME MATERIALIZED VIEW mv_policy` into `docker compose exec proton proton client`.
 
 **5. Watch it land.** Resume replays the backlog, so this is immediate:
-- two rows appear in *Decisions* at once: *"Proton caught up on what it had observed and decided, in about 100 ms."*
+- one row per alert that fired while paused appears in *Decisions* at once, all interrupts, each tagged `(replayed)`: *"Proton caught up on what it had observed and decided, in about 100 ms."*
 - Claude Code shows the denied call with the policy's sentence: *"Its own PreToolUse hook asked Proton, got 'interrupt', and denied the call. That sentence is now in front of the model."*
 - the model answers: *"And it stops polling and tells me the deploy is stuck."*
 
@@ -83,11 +83,11 @@ or, for the live-typing version, type `SYSTEM RESUME MATERIALIZED VIEW mv_policy
 | open | `scripts/policy.sh off` → `SYSTEM PAUSE MATERIALIZED VIEW mv_policy` | alerts still written to `agent_alerts`; `agent_actions` gets nothing; hooks allow everything |
 | close | `scripts/policy.sh on` → `SYSTEM RESUME MATERIALIZED VIEW mv_policy` | the view replays every alert that fired while paused, each becomes a decision now; then it runs live. The hook denies the next matching call once (all replayed interrupts count as one block). |
 
-The backlog follows the normal policy: the third failing pattern in a session is a halt. Resume at `tool_loop` = 2 and the agent gets an interrupt with the hint. Resume at 3 or more and it gets a halt: every call is denied, the turn ends with "Halted by stream policy", and you type `[resume] carry on` in Claude Code to lift it. Both are a stop; the interrupt is the nicer story. Resume before `docker compose down`: Proton asks not to restart while a view is paused (`scripts/reset.sh` recreates it running).
+Every replayed alert becomes an interrupt, however many there are; the hook consumes them all with one denial. Replayed alerts don't count toward the halt (the agent never saw them as hints), so resuming late never turns the beat into a hard stop. The halt still exists: an agent that ignores two *live* hints after the resume is halted on the third, and `[resume] carry on` in Claude Code lifts it. Resume before `docker compose down`: Proton asks not to restart while a view is paused (`scripts/reset.sh` recreates it running).
 
 ## If the agent doesn't cooperate
 
-- **It stops polling on its own before the decision lands.** Type `keep checking` in Claude Code. The decision is aimed at that one call, so the next identical check is the one that gets denied.
+- **It stops polling on its own before you resumed.** Resume now, then type `keep checking` in Claude Code: the replayed interrupts are fresh for 60 s and aimed at that call, so its next check is the one that gets denied. (Opus 5.5 gave up after ~20 checks when asked for 10 s spacing it couldn't deliver; the prompt no longer asks for spacing and says not to stop.)
 - **It writes a loop or a background job.** Claude Code will ask for permission (the command isn't on the allowlist). Decline, and it falls back to single calls.
 - **It reads the script.** Fine: `check_deploy.sh` is a thin client of the `ops-api` container and shows nothing synthetic.
 - **It varies the command** (`sleep 10 && ./check_deploy.sh` still counts; a separate `sleep` call breaks the streak). Don't fight it. Say *"the model got smart on its own. Here's the same agent behaviour, scripted"* and run:

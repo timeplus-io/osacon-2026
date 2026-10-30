@@ -4,7 +4,7 @@ Talk: **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to
 
 Deck (Google Slides): https://docs.google.com/presentation/d/1BJQw398uOurzPfrzBuMDtBnCwht_Q3Zo_JtTvmJarbA/edit
 The backup slides "Detect" and "Decide and deliver" show SQL from `demo/sql/03_detectors.sql` and `04_policy.sql`, and the main "The pipeline" slide (data lineage) names every stream and materialized view. **If you change those files, update the slides too** (or tell whoever owns the deck).
-**Deck is out of date as of 2026-10-30:** slide 8 must show `lags(call_key, 1, 100)` and `WHERE streak >= 4 AND streak % 4 = 0` (was `1, 12` / `streak IN (4, 8, 12)`).
+**Deck is out of date as of 2026-10-30:** backup slide "Detect" must show `lags(call_key, 1, 100)` and `WHERE streak >= 4 AND streak % 4 = 0` (was `1, 12` / `streak IN (4, 8, 12)`); backup slide "Decide and deliver" must show the `live` flag and `lags(if(is_pattern AND live, detector, ''), 1, 2)` in the escalation subquery.
 
 ---
 
@@ -29,12 +29,12 @@ Claude Code / Codex ──OTel log events──▶ Collector ──otlp_json─�
 | `tool_errors` | failed calls in a row, streak = **3, 6, 9** | `tool_name`, `target` |
 | `budget` | session spend reaches each **multiple** of `$BUDGET_USD` or `BUDGET_TOKENS` (whichever comes first) | — |
 
-The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 100))`. It fires on every 4th call (not only 4/8/12), so an agent that keeps going keeps producing alerts. The open-loop/closed-loop stage beat uses `scripts/policy.sh off|on` = `SYSTEM PAUSE|RESUME MATERIALIZED VIEW mv_policy`. **Resume replays the backlog:** every alert that fired while paused becomes a decision at once (verified on Proton 3.0.32), so resume at `tool_loop` = 2 for an interrupt, 3+ gives a halt via the escalation rule. A view's background query shows in `system.processes` with `query_id = '.mv-<view uuid>'` and disappears while paused; that is how `status` tells (matching on query text is wrong: Grafana's streaming panels read `agent_alerts` too).
+The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 100))`. It fires on every 4th call (not only 4/8/12), so an agent that keeps going keeps producing alerts. The open-loop/closed-loop stage beat uses `scripts/policy.sh off|on` = `SYSTEM PAUSE|RESUME MATERIALIZED VIEW mv_policy`. **Resume replays the backlog:** every alert that fired while paused becomes an interrupt at once (verified on Proton 3.0.32); replayed alerts don't count toward escalation, so the presenter can resume at any point while the agent is still polling. Claude Code 2.1.x blocks foreground `sleep` in Bash, so a live agent polls every 2–3 s whatever the prompt says, and Opus 5.5 gave up after ~20 checks when asked for 10 s spacing; the prompt now asks it not to stop. A view's background query shows in `system.processes` with `query_id = '.mv-<view uuid>'` and disappears while paused; that is how `status` tells (matching on query text is wrong: Grafana's streaming panels read `agent_alerts` too).
 
 ### Policy (`sql/04_policy.sql`)
 - `budget` → `halt`
 - `tool_loop` / `tool_errors` → `interrupt`, **aimed** at `target`
-- the **third** failing pattern in a row in a session (`lags(detector,1,2)`) → `halt` (escalation)
+- the **third** failing pattern in a row in a session → `halt` (escalation). Only alerts handled **live** (`date_diff(ms, _tp_time, now64()) < 2000`) count: a backlog replayed by `SYSTEM RESUME` becomes interrupts but never adds up to a halt.
 - `hint` = the sentence the model reads as the deny reason.
 
 ### Hook (`hooks/proton_gate.py`, stdlib only; used by both agents and the simulator)
@@ -117,6 +117,7 @@ Proton gotchas we hit:
 - UDF names can't end in `_map`.
 - `date_diff_within` joins only worked up to ~2m.
 - A `lags()` bool column pads with `false`; use a `uint8` flag instead.
+- An alias that is referenced only inside `lags()` (e.g. `live` from `now64()`) is not evaluated per row in a materialized view: it came out constant `false`, while the same SQL as an interactive streaming query was fine. Projecting the alias in the outer SELECT fixes it (that's why `reason` carries the `(replayed)` tag).
 - Time windows over many sessions share one watermark (an alert waited for other sessions' events, then fired 9×). That's why detectors use per-session row state.
 
 ---
