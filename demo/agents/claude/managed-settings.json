@@ -1,5 +1,5 @@
 {
-  "$comment": "Claude Code managed settings for the demo container (/etc/claude-code/managed-settings.json). OTel export is configured with environment variables in docker-compose.yml.",
+  "$comment": "Claude Code managed settings for the demo container (/etc/claude-code/managed-settings.json). OTel export is configured with environment variables in docker-compose.yml. defaultMode=default so the allowlist is the gate: a scripted loop or background job is not on it and prompts the presenter instead of running silently (a session was seen starting in 'auto' mode otherwise).",
   "permissions": {
     "allow": [
       "Bash(./check_deploy.sh:*)",
@@ -16,20 +16,56 @@
       "Grep",
       "Write",
       "Edit"
-    ]
+    ],
+    "defaultMode": "default"
   },
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "PostToolUseFailure": [
-      { "matcher": "*", "hooks": [ { "type": "command", "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py", "timeout": 10 } ] }
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PROTON_GATE_AGENT=claude-code python3 /opt/demo/hooks/proton_gate.py",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

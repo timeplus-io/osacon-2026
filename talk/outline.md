@@ -83,9 +83,9 @@ The per-slide notes below keep the original numbering (1–13); the deck order i
 
 ## 8. A detector is a materialized view (1:30)
 
-**On screen:** `sql/03_detectors.sql`, D1. Highlight `PARTITION BY session_id`, `lags(call_key, 1, 12)` and `streak IN (4, 8, 12)`.
+**On screen:** `sql/03_detectors.sql`, D1. Highlight `PARTITION BY session_id`, `lags(call_key, 1, 100)` and `streak >= 4 AND streak % 4 = 0`.
 
-> This is the loop detector, the whole thing. `PARTITION BY session_id` gives every session its own state. `lags` looks back at that session's recent tool calls; `streak` counts identical ones in a row. Fourth identical call: fire. If the agent ignores the hint, again at 8 and 12. It runs forever; nobody schedules it; it doesn't care which agent it's watching.
+> This is the loop detector, the whole thing. `PARTITION BY session_id` gives every session its own state. `lags` looks back at that session's recent tool calls; `streak` counts identical ones in a row. Fourth identical call: fire. If the agent ignores the hint, again on every fourth. It runs forever; nobody schedules it; it doesn't care which agent it's watching.
 
 ## 9. The policy is SQL; the hook delivers it (1:15)
 

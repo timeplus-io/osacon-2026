@@ -35,7 +35,7 @@
             "uid": "proton-ds"
           },
           "refId": "A",
-          "sql": "SELECT _tp_time AS time, session_id, action, reason FROM agent_actions"
+          "sql": "SELECT _tp_time AS time, session_id, action, reason FROM agent_actions SETTINGS seek_to='-15m'"
         }
       ],
       "options": {
@@ -69,7 +69,7 @@
             "uid": "proton-ds"
           },
           "refId": "A",
-          "sql": "SELECT _tp_time AS time, agent, session_id, tool_name, call_target, success FROM agent_events WHERE event = 'tool_result'"
+          "sql": "SELECT _tp_time AS time, agent, session_id, tool_name, call_target, success FROM agent_events WHERE event = 'tool_result' SETTINGS seek_to='-15m'"
         }
       ],
       "options": {
@@ -133,7 +133,7 @@
             "uid": "proton-ds"
           },
           "refId": "A",
-          "sql": "SELECT window_end AS time, count_if(agent = 'claude-code') AS claude_code, count_if(agent = 'codex') AS codex, count_if(agent = 'simulator') AS simulator FROM tumble(agent_events, 5s) WHERE event = 'tool_result' GROUP BY window_end"
+          "sql": "SELECT window_end AS time, count_if(agent = 'claude-code') AS claude_code, count_if(agent = 'codex') AS codex, count_if(agent = 'simulator') AS simulator FROM tumble(agent_events, 5s) WHERE event = 'tool_result' GROUP BY window_end SETTINGS seek_to='-15m'"
         }
       ]
     },

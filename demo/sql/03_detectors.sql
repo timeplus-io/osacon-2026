@@ -8,7 +8,7 @@
 -- simulator.
 --
 -- Thresholds (edit here, then scripts/reset.sh):
---   tool_loop    4 identical tool calls in a row (again at 8, 12)
+--   tool_loop    4 identical tool calls in a row (again at 8, 12, 16, ...)
 --   tool_errors  3 failed tool calls in a row (again at 6, 9)
 --   budget       $__BUDGET_USD__ (cost_usd, Claude Code)  or  __BUDGET_TOKENS__ tokens (input+output);
 --                fires again at each further multiple of the budget
@@ -21,9 +21,11 @@
 -- D1. Tool-call loop
 -- Same tool, same target (command / file / args) 4 times in a row. lags()
 -- looks back at this session's previous tool calls; `streak` is how many
--- identical calls in a row this one makes. Fires on the 4th identical call,
--- and again on the 8th and 12th if the agent ignores the first hint (the
--- policy turns the third one into a halt).
+-- identical calls in a row this one makes. Fires on the 4th identical call
+-- and on every 4th after that (8, 12, 16, ...) for as long as the agent keeps
+-- going; the policy turns the third alert into a halt. Firing indefinitely
+-- means a policy view started late (the "open loop, then close it" demo)
+-- still gets an alert within four calls.
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_detect_tool_loop INTO agent_alerts AS
 SELECT
   session_id,
@@ -38,13 +40,13 @@ FROM
   SELECT
     session_id, tool_name, call_target,
     concat(tool_name, '|', call_target) AS call_key,
-    lags(call_key, 1, 12) AS prev,                            -- previous 12 tool calls in this session, newest first
+    lags(call_key, 1, 100) AS prev,                           -- previous 100 tool calls in this session, newest first
     array_first_index(x -> x != call_key, prev) AS streak     -- 4 = this is the 4th identical call in a row
   FROM agent_events
   WHERE event = 'tool_result'
   PARTITION BY session_id
 )
-WHERE streak IN (4, 8, 12);
+WHERE streak >= 4 AND streak % 4 = 0;
 
 
 -- D2. Tool error streak

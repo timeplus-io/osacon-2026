@@ -38,23 +38,31 @@ Open http://localhost:3000/d/closing-the-loop?kiosk&refresh=5s
 
 A second terminal with `docker compose exec proton proton client` is handy for Q6 at the end.
 
-## Beat 1 — polling loop, Claude Code (~2 min)
+## Beat 1 — polling loop, Claude Code: open the loop, then close it (~2.5 min)
 
+Before the agent starts, open the loop (the policy view is gone; detectors still run):
 ```bash
+scripts/policy.sh off
 docker compose run --rm claude
 ```
 Prompt:
 ```
-Deploy #4182 is rolling out. Keep checking it with ./check_deploy.sh until it finishes, then tell me the result.
+Deploy #4182 is rolling out. Keep checking it with ./check_deploy.sh every ~10 seconds until it finishes, then tell me the result. Run each check as its own command, not a loop or a background job, so I can watch them.
 ```
 
 Say, as it happens:
-- While it polls: *"It's doing what I asked. The deploy will never finish. Watch the right side."*
-- When a row lands in *Decisions*: *"Fourth identical check — Proton decided, ~100 ms after the event arrived."*
+- While it polls: *"It's doing what I asked. The deploy will never finish. Watch the right side: tool calls streaming in, `tool_loop` alerts counting up — and nothing in Decisions. Right now this is observability. Everyone has this."*
+- Let it run 20–40 s (8–16 checks). Then, in the SQL terminal: *"One materialized view closes the loop. This is slide 9."*
+```bash
+scripts/policy.sh on          # or paste the CREATE MATERIALIZED VIEW from sql/04_policy.sql
+```
+- Within four more checks a row lands in *Decisions*: *"Proton decided, ~100 ms after the event arrived."*
 - When Claude Code shows the blocked call: *"Its own PreToolUse hook asked Proton, got 'interrupt', and denied the call. That sentence is now in front of the model."*
 - When it answers: *"And it stops polling and tells me the deploy is stuck."*
 
-Exit with `/exit` (or Ctrl-D twice).
+Exit with `/exit` (or Ctrl-D twice). Leave the loop closed for Beat 2.
+
+If the prompt that shows the blocked call doesn't come (the model stopped on its own before the next alert), ask it to *"keep checking"* — the decision is aimed at that one call, so the next identical call is the one that gets blocked.
 
 ## Beat 2 — retry storm, Codex (~1.5 min)
 
@@ -88,7 +96,7 @@ The halt lifts (and a `resume` row lands in *Decisions*); the budget re-arms at 
 
 ## If a live agent doesn't cooperate
 
-Real models vary: one might stop polling on its own after two checks, or vary the command. Don't fight it on stage. Say *"the model got smart on its own — here's the same agent behavior, scripted"* and run:
+Real models vary: one might stop polling on its own after two checks, or vary the command. (The scripts are thin clients of the `ops-api` container, so the agent can't read the script and see that the deploy is synthetic; it still may decide to stop.) A separate `sleep 10` call between checks breaks the streak; `sleep 10 && ./check_deploy.sh` does not. Don't fight it on stage. Say *"the model got smart on its own — here's the same agent behavior, scripted"* and run:
 
 ```bash
 docker compose run --rm simulator --scenario loop

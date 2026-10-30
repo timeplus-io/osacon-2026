@@ -84,11 +84,11 @@ Proton OSS has no OTLP receiver. Kafka is the bridge: the OpenTelemetry Collecto
 
 | Detector | Condition | Mechanism | Action |
 |---|---|---|---|
-| `tool_loop` | same tool + same target 4× in a row (again at 8×, 12×) | `PARTITION BY session_id` + `lags()` | interrupt + hint |
+| `tool_loop` | same tool + same target 4× in a row (again on every 4th: 8×, 12×, 16×, ...) | `PARTITION BY session_id` + `lags()` | interrupt + hint |
 | `tool_errors` | 3 failed tool calls in a row (again at 6, 9) | `PARTITION BY session_id` + `lags()` | interrupt + hint |
 | `budget` | session spend reaches `$BUDGET_USD` or `BUDGET_TOKENS` (again at 2×, 3×, …) | `PARTITION BY session_id` + running sum via `lags()` | halt |
 
-Each fires **once per threshold**, on the event that crosses it. The policy turns the third failing pattern in a row into a halt: an agent that ignores two hints is stopped at the 12th identical call or the 9th failure.
+Each fires **once per threshold**, on the event that crosses it (the loop detector on every 4th identical call, so a policy view created late still gets an alert within four calls). The policy turns the third failing pattern in a row into a halt: an agent that ignores two hints is stopped at the 12th identical call or the 9th failure.
 
 ## How a decision reaches the agent
 

@@ -58,9 +58,9 @@ def run_tool(scenario: str, call: dict) -> tuple[bool, str]:
     time.sleep(random.uniform(0.15, 0.3))
     cmd = call.get("command", "")
     if "check_deploy" in cmd:
-        return True, "deploy #4182 status: IN_PROGRESS (step 3/5: running database migration)"
+        return True, "deploy #4182 status: IN_PROGRESS (step 3/5: database migration 0047_add_order_index)"
     if "fetch_metrics" in cmd:
-        return False, "curl: (7) Failed to connect to metrics.internal port 443: Connection refused"
+        return False, "curl: (22) The requested URL returned error: 503 (metrics proxy is restarting; retry in a few seconds)"
     if "metrics-cache" in cmd:
         return True, "timestamp,service,error_rate_pct ... 60 rows (spike to 3.4% at 09:38-09:44)"
     if call.get("file_path"):
