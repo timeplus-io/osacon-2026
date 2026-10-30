@@ -1,6 +1,6 @@
 # Illustrations
 
-Generated with an image model for this talk, from the prompts below (shared style + scene). Backgrounds were set to pure white and the images resized to 800×800.
+Generated with an image model for this talk, from the prompts below (shared style + scene). Backgrounds were set to pure white, the drawings cropped to their content and framed at 4:3 (1200×900).
 
 | File | Slide | Scene |
 |---|---|---|
