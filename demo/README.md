@@ -100,5 +100,5 @@ It runs the four simulator scenarios end to end, then replays Claude Code- and C
 ### What has been verified, and what hasn't
 
 - **Verified** (Proton v3.0.31, Kafka protocol, OTLP/HTTP → Kafka shim in place of the Collector): every SQL file; all four simulator scenarios; Claude Code- and Codex-shaped payloads (attribute names taken from Claude Code 2.1.312 and the open-source Codex code) through parser → detectors → policy → hook; the hook's fail-open behavior; every query in `queries.sql`; every Grafana panel query.
-- **Not yet run**: the containers themselves — the Collector, `apache/kafka`, Grafana with the Proton plugin, and the agents image — and live Claude Code / Codex sessions. Run the setup above once on the presenting laptop.
+- **Not yet run** (see HANDOVER.md §4): the containers themselves — the Collector, `apache/kafka`, Grafana with the Proton plugin, and the agents image — and live Claude Code / Codex sessions. Run the setup above once on the presenting laptop.
 - **Grafana plugin note**: the Proton data source v2.1.5 is unsigned (allowed via `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS`) and its release zip ships Linux binaries for **arm64 only** — fine on an Apple-silicon Mac; on an x86 host build the plugin from source or use the terminal queries.

@@ -27,9 +27,10 @@ Grafana: http://localhost:3000. Details and demo prompts: [`demo/README.md`](dem
 | Path | Contents |
 |---|---|
 | [`talk/abstract.md`](talk/abstract.md) | Title, abstract (long + short), components and licenses |
-| [`talk/outline.md`](talk/outline.md) | 13-slide outline with timing, speaker notes, likely Q&A |
+| [`talk/outline.md`](talk/outline.md) | Slide outline with timing, speaker notes, likely Q&A |
 | [`talk/demo-runbook.md`](talk/demo-runbook.md) | On-stage demo with Claude Code and Codex, prompts, fallbacks |
 | [`talk/checklist.md`](talk/checklist.md) | Speaker prep checklist |
+| [`HANDOVER.md`](HANDOVER.md) | Current state, design, how to run/test, what is still unverified |
 | [`docs/architecture.md`](docs/architecture.md) | Architecture, how both agents map to one schema, design notes |
 | [`demo/`](demo/) | The whole demo as one docker-compose stack |
 
