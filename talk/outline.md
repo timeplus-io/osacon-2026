@@ -1,7 +1,7 @@
 # Talk outline and speaker notes
 
 **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to Agent Action**
-20 minutes + 5 minutes Q&A · 12 main slides + 4 backup · ~5.5 minutes of live demo (simulator by default; live Claude Code/Codex if rehearsals are reliable)
+20 minutes + 5 minutes Q&A · 12 main slides + 7 backup · ~5.5 minutes of live demo (simulator by default; live Claude Code/Codex if rehearsals are reliable)
 
 Ground rules for this venue (from the organizers): open source only, no commercial content, the room is livestreamed and recorded. The infrastructure on screen is all OSS (OpenTelemetry, Kafka, Proton, Grafana). The agents are the *clients* being observed — Codex is open source (Apache-2.0); Claude Code is not, so say once that the loop works the same for any agent that exports OTel and has hooks. No customer names; nothing confidential on slides, terminals, or in `.env`.
 
@@ -16,14 +16,14 @@ Ground rules for this venue (from the organizers): open source only, no commerci
 | 3 | What coding agents already emit | 1:30 | 3:00 |
 | 4 | Three failures that burn money in seconds | 1:30 | 4:30 |
 | 5 | The loop (architecture; two readers: agent loop + optional Grafana) | 1:30 | 6:00 |
-| 6 | **Proton: SQL that never stops running** (what streaming SQL is) | 1:00 | 7:00 |
-| 7 | A detector is a materialized view | 2:00 | 9:00 |
-| 8 | The policy is SQL; the hook delivers it | 2:00 | 11:00 |
-| 9 | **Live demo** | 5:30 | 16:30 |
-| 10 | What held up, what didn't, what's still open | 2:00 | 18:30 |
-| 11 | Takeaway | 0:45 | 19:15 |
-| 12 | Run it yourself (QR) | 0:30 | 19:45 |
-| — | *Backup: divider, configuration, parse view, open problems* | Q&A only | |
+| 6 | Proton: SQL that never stops running | 1:00 | 7:00 |
+| 7 | Inside Proton | 0:45 | 7:45 |
+| 8 | **The pipeline** — data lineage: thin streams, materialized views do the work; async detection, sync enforcement | 2:30 | 10:15 |
+| 9 | **Live demo** | 5:30 | 15:45 |
+| 10 | What held up, what didn't, what's still open | 2:00 | 17:45 |
+| 11 | Takeaway | 0:45 | 18:30 |
+| 12 | Run it yourself (QR) | 0:30 | 19:00 |
+| — | *Backup: divider, detector SQL, policy + hook, configuration, parse view, open problems, timing* | Q&A only | |
 
 Cut from the main flow to fit 20 minutes: the configuration slide and the parse-SQL slide (one sentence each on the architecture slide now), and the standalone open-problems slide (now a one-line "still open" strip on the lessons slide). All three are in the backup section for Q&A.
 
