@@ -81,7 +81,9 @@ demo/
                             policy.sh off|on (drop / recreate mv_policy: open or close the loop on stage)
   tests/e2e_test.py         25 checks through Kafka; mini_collector.py (OTLP → Kafka stand-in); otlp_fixtures.py
 docs/architecture.md        architecture, schema mapping, "How a decision reaches the agent", recovery
-talk/                       abstract, outline (timings, notes, Q&A), demo-runbook, checklist, assets (icons, logos)
+talk/                       abstract, outline (timings, notes, Q&A), demo-runbook (the one on-stage demo: Claude Code
+                            polling, open loop -> close it), demo-runbook-extras (Codex retry storm, post-mortem,
+                            budget halt: Q&A / hallway only), checklist, assets (icons, logos)
 ```
 
 ---
@@ -139,18 +141,18 @@ Proton gotchas we hit:
 2. **A live Claude Code session** with the polling-loop prompt: does the 5th check get denied and does Claude report the deploy as stuck?
 3. **A live Codex session.** Two unknowns:
    - (a) the exact `tool_name`/`tool_input` shape Codex sends to PreToolUse hooks. Matching falls back to "block" if it can't parse, but check that the target actually matches.
-   - (b) whether Codex keeps retrying or goes straight to `metrics-cache/` (both are fine; see the runbook).
+   - (b) whether Codex keeps retrying or goes straight to `metrics-cache/` (both are fine; see demo-runbook-extras).
 4. **Grafana plugin architecture:** the Proton datasource v2.1.5 zip ships **arm64-only** Linux binaries. That's fine on Apple silicon. On x86, build it from source or use terminal queries.
 5. **`[resume]` in a real session:** confirm Claude Code and Codex both fire UserPromptSubmit after a `continue:false` stop, in the same session.
 6. **Hook timeout behaviour with Proton stopped mid-session:** we expect Claude Code to treat it as non-blocking, and believe Codex does the same.
-7. **Timing:** run the demo end to end against the clock. The budget is 5:30 for the demo. The simulator is the on-stage default; use a live agent only if it reliably triggers in rehearsal.
+7. **Timing:** run the demo end to end against the clock. Only the Claude Code polling demo is on stage (target 4 min, open loop -> close it live); Codex, post-mortem and budget are extras. The simulator is the fallback; use the live agent if it reliably triggers in rehearsal.
 
 ---
 
 ### Findings from the first live Claude Code run (2026-10-30, Opus 5.5)
 - The model read `check_deploy.sh`, saw the hardcoded "never finishes" demo script, and refused to poll. Fixed: the scripts are now thin clients of the `ops-api` container (`fakes/ops_api.py`), which the agent can't read.
 - Asked to check "about every 10 seconds", it wrote **one** `while true; do ./check_deploy.sh; sleep 10; done` Bash call with `run_in_background: true` and answered immediately. One tool call, so `tool_loop` can't fire. Fixes: the prompt now says "run each check as its own command, not a loop or a background job", and managed settings set `permissions.defaultMode = "default"` so a command outside the allowlist prompts the presenter (the session had started in `auto` mode, which accepted the loop). Decline the prompt and the model falls back to single calls. Re-verify.
-- The dashboard's "live" tables ran plain streaming queries; with `refresh: 5s` every refresh restarted the query and the rows vanished ("tool calls show, then gone"). Fixed with `SETTINGS seek_to='-15m'` on the three live panels.
+- The dashboard's "live" tables ran plain streaming queries; with `refresh: 5s` every refresh restarted the query and the rows vanished ("tool calls show, then gone"). **The dashboard now has no auto-refresh and every panel is a streaming query.** The Proton datasource plugin (v2.1.5) asks Proton's analyzer whether the SQL is streaming and, if so, returns a Grafana Live channel; the backend pushes new rows as frames and Grafana appends them (`StreamingFrameAction.Append`, buffer = panel `maxDataPoints`, trimmed to the time range). A dashboard refresh re-runs the query and gets a new channel, which is what wiped the rows. Live tables use `SETTINGS seek_to='-15m'` so a freshly opened dashboard replays history; the two former `table()` panels are streaming aggregations with `EMIT PERIODIC 2s SETTINGS seek_to='-1h'` (Alerts: running totals in a bar gauge with reducer *last*; Sessions: `GROUP BY session_id` plus a Grafana *Group by -> last* transformation, since every re-emitted row is appended). Verified in a browser: rows from a new simulator run appeared in all panels with no refresh.
 - **The presenting laptop's own Claude Code exports to `localhost:4318`** (`~/.claude/settings.json` sets `OTEL_EXPORTER_OTLP_ENDPOINT`), so every local session lands in the demo streams and in Grafana; the budget policy halted the dev session twice. Before going on stage, disable that or point it elsewhere, then `scripts/reset.sh`.
 
 ## 5. Open ideas (not started)

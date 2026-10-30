@@ -16,7 +16,7 @@ Event logistics (date, venue, slot) come from the organizers' email; this list o
 - [ ] Simulator fallback works with Wi-Fi off (`docker compose run --rm simulator --scenario loop`)
 - [ ] Phone hotspot ready (live agents need the model API)
 - [ ] Backup recording of the demo on the laptop and on USB
-- [ ] `demo-runbook.md` printed or on a phone
+- [ ] `demo-runbook.md` printed or on a phone (`demo-runbook-extras.md` only if there is time for Q&A demos)
 
 ## Bring
 - [ ] Laptop with slides loaded, charger
