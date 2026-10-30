@@ -58,6 +58,31 @@ def detectors(sid: str, want: set[str] | None = None, wait_s: float = 8.0) -> se
         time.sleep(0.5)
 
 
+def actions(sid: str, n: int = 1, wait_s: float = 10.0) -> list[dict]:
+    """Decisions for a session, oldest first; polls until at least n are visible."""
+    deadline = time.time() + wait_s
+    while True:
+        rows = q("SELECT action, detector, target, reason FROM table(agent_actions) WHERE session_id = {s:string} "
+                 "ORDER BY _tp_time", s=sid)
+        if len(rows) >= n or time.time() > deadline:
+            return rows
+        time.sleep(0.5)
+
+
+def until_denied(fn, wait_s: float = 10.0) -> dict | None:
+    """Call a PreToolUse check until it denies (a non-deny doesn't consume anything)."""
+    deadline = time.time() + wait_s
+    while True:
+        v = fn()
+        if (v and v.get("hookSpecificOutput", {}).get("permissionDecision") == "deny") or time.time() > deadline:
+            return v
+        time.sleep(0.5)
+
+
+def reason(v: dict | None) -> str:
+    return (v or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+
+
 failures: list[str] = []
 
 
@@ -101,33 +126,41 @@ def part2_agent_payloads(kafka: str) -> None:
     for i in range(4):
         check(f"claude loop: call {i + 1} allowed", pre("claude-code", sid, "./check_deploy.sh") is None)
         send("claude-code", claude_tool_result(sid, f"sleep {5 * i} && ./check_deploy.sh" if i else "./check_deploy.sh", description=f"poll {i}"))
-    time.sleep(1.5)
-    v = pre("claude-code", sid, "sleep 10 && ./check_deploy.sh")
-    check("claude loop: 5th call denied with hint",
-          bool(v) and v["hookSpecificOutput"]["permissionDecision"] == "deny" and "four times" in v["hookSpecificOutput"]["permissionDecisionReason"])
-    check("claude loop: next call allowed (interrupt applied once)", pre("claude-code", sid, "cat README.md") is None)
+    v = until_denied(lambda: pre("claude-code", sid, "sleep 10 && ./check_deploy.sh"))
+    check("claude loop: 5th call denied with hint", "in a row" in reason(v), reason(v)[:80])
+    check("claude loop: same call allowed after one block (applied once)",
+          pre("claude-code", sid, "./check_deploy.sh") is None)
 
     # Codex retry storm: 3 failed shell calls -> next call denied
     sid = f"cx-{run}-flaky"
     for i in range(3):
         pre("codex", sid, "./fetch_metrics.sh")
         send("codex_cli_rs", codex_tool_result(sid, "./fetch_metrics.sh", ok=False))
-    time.sleep(1.5)
-    v = pre("codex", sid, "./fetch_metrics.sh")
-    check("codex errors: 4th call denied with hint",
-          bool(v) and "failed" in v["hookSpecificOutput"]["permissionDecisionReason"])
+    v = until_denied(lambda: pre("codex", sid, "./fetch_metrics.sh"))
+    check("codex errors: 4th call denied with hint", "failed" in reason(v), reason(v)[:80])
 
     # Claude Code budget: cost crosses the budget -> PostToolUse stops the session, PreToolUse denies
     sid = f"cc-{run}-budget"
     budget = float(os.environ.get("BUDGET_USD", "0.50"))
     for _ in range(int(budget / 0.12) + 2):
         send("claude-code", claude_api_request(sid, 0.12))
-    time.sleep(1.5)
+    actions(sid, 1)
     post = proton_gate.handle({"hook_event_name": "PostToolUse", "session_id": sid, "tool_name": "Read",
                                "tool_input": {"file_path": "/workspace/README.md"}}, "claude-code")
     check("claude budget: PostToolUse returns continue:false", bool(post) and post.get("continue") is False)
     v = pre("claude-code", sid, "ls")
-    check("claude budget: further tool calls denied", bool(v) and "budget" in v["hookSpecificOutput"]["permissionDecisionReason"])
+    check("claude budget: further tool calls denied", "budget" in reason(v))
+
+    # ...a person resumes it: tool calls run again, and the budget re-arms at 2x
+    proton_gate.handle({"hook_event_name": "UserPromptSubmit", "session_id": sid,
+                        "prompt": "[resume] the extra spend is approved, carry on"}, "claude-code")
+    check("claude budget: [resume] lifts the halt", pre("claude-code", sid, "ls") is None)
+    check("claude budget: resume recorded in agent_actions",
+          any(a["action"] == "resume" for a in actions(sid, 2)))
+    for _ in range(int(budget / 0.12) + 1):
+        send("claude-code", claude_api_request(sid, 0.12))
+    v = until_denied(lambda: pre("claude-code", sid, "ls"))
+    check("claude budget: halts again at 2x the budget", "2x" in reason(v), reason(v)[:90])
 
     # Codex budget by tokens
     sid = f"cx-{run}-budget"
@@ -137,10 +170,53 @@ def part2_agent_payloads(kafka: str) -> None:
     time.sleep(1.5)
     check("codex budget: halt by tokens", "budget" in detectors(sid, {"budget"}))
 
+    part3_targeting(send, run)
+
     # the session log the hooks wrote
     rows = q("SELECT event_type FROM table(agent_session_log) WHERE session_id = {s:string}", s=f"cc-{run}-loop")
     check("session log written by hooks", {"user_prompt", "control"} <= {r["event_type"] for r in rows},
           str(sorted({r["event_type"] for r in rows})))
+
+
+def part3_targeting(send, run: str) -> None:
+    print("\n# decisions are aimed at a call, expire, and escalate")
+
+    def pre(sid: str, cmd: str) -> dict | None:
+        return proton_gate.handle({"hook_event_name": "PreToolUse", "session_id": sid, "tool_name": "Bash",
+                                   "tool_input": {"command": cmd}}, "claude-code")
+
+    def loop(sid: str, cmd: str, n: int = 4) -> None:
+        for i in range(n):
+            send("claude-code", claude_tool_result(sid, cmd, description=f"try {i}"))
+
+    # the agent already changed course: its next (different) call runs; the old call stays blocked
+    sid = f"cc-{run}-moved-on"
+    loop(sid, "./check_deploy.sh")
+    actions(sid, 1)
+    check("moved on: a different call is allowed", pre(sid, "kubectl logs deploy/checkout") is None)
+    check("moved on: going back to the looped call is still blocked",
+          "in a row" in reason(pre(sid, "sleep 5 && ./check_deploy.sh")))
+
+    # a stale decision does not block a later call
+    sid = f"cc-{run}-stale"
+    ttl = proton_gate.INTERRUPT_TTL_S
+    proton_gate.INTERRUPT_TTL_S = 3
+    loop(sid, "./check_deploy.sh")
+    actions(sid, 1)
+    time.sleep(4.5)
+    check("expiry: an interrupt older than its TTL is ignored", pre(sid, "./check_deploy.sh") is None)
+    proton_gate.INTERRUPT_TTL_S = ttl
+
+    # an agent that ignores the hint: interrupts at the 4th and 8th identical call, halt at the 12th
+    sid = f"cc-{run}-stubborn"
+    loop(sid, "./check_deploy.sh", 12)
+    got = [a["action"] for a in actions(sid, 3)]
+    check("escalation: interrupt, interrupt, then halt", got == ["interrupt", "interrupt", "halt"], str(got))
+    v = until_denied(lambda: pre(sid, "cat notes.md"))
+    check("escalation: halt blocks any call and says how to resume", "[resume]" in reason(v), reason(v)[-60:])
+    proton_gate.handle({"hook_event_name": "UserPromptSubmit", "session_id": sid,
+                        "prompt": "[resume] the deploy is fixed now, check it again"}, "claude-code")
+    check("resume: calls run again, including the one that looped", pre(sid, "./check_deploy.sh") is None)
 
 
 def main() -> int:

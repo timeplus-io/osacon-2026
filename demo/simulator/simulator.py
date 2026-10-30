@@ -156,7 +156,7 @@ def main() -> int:
             reason = verdict["hookSpecificOutput"]["permissionDecisionReason"]
             print(f"{ts()} {c(MAGENTA, '◀ hook ')} {c(BOLD, 'blocked')} {call['tool']}({shown})")
             print(f"{' ' * 9} {c(MAGENTA, '  reason →')} {c(DIM, reason)}")
-            if "exhausted its budget" in reason:
+            if "[resume]" in reason:  # a halt (budget, or escalation)
                 outcome, rc = "halted", 2
                 print(f"{ts()} {c(RED, '■ halted by policy')}")
                 break

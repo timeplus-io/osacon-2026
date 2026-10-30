@@ -4,23 +4,35 @@
 One small hook (Python stdlib only) wired into the agent's own lifecycle
 hooks. Both agents use the same hook protocol: JSON on stdin, JSON on stdout.
 
-  UserPromptSubmit   append the prompt to agent_session_log
-  PreToolUse         read new rows from agent_actions for this session:
-                       interrupt -> deny this tool call; the hint becomes the
-                                    reason the model sees, and it adapts
-                       halt      -> deny every further tool call
+Design: detection is asynchronous, enforcement is synchronous and local.
+Proton's materialized views write decisions into agent_actions in the
+background; this hook never waits for them. Before each tool call it makes one
+lookup — "is there a decision for this session that applies to *this* call?" —
+and applies what is already there. A decision therefore takes effect on the
+agent's next matching tool call, never on the call that triggered it.
+
+  UserPromptSubmit   append the prompt to agent_session_log; a prompt that
+                     contains "[resume]" lifts a halt (writes a 'resume' row)
+  PreToolUse         look up agent_actions for this session:
+                       interrupt -> aimed at one call (its normalized target).
+                                    If this call matches and the interrupt is
+                                    fresh (< PROTON_GATE_INTERRUPT_TTL_S), deny
+                                    it once; the hint is the reason the model
+                                    reads. Any other call runs normally.
+                       halt      -> deny every tool call until resumed
   PostToolUse(+Failure)  append the call to agent_session_log; if the session
                      has been halted, return {"continue": false} to stop it
 
-The detection itself happens in Proton, outside the agent — this hook only
-reads the decision. It fails open: if Proton is unreachable the agent runs
-normally.
+It fails open: if Proton is unreachable or slow (PROTON_GATE_TIMEOUT_S), the
+agent runs normally.
 
 Environment:
-  PROTON_QUERY_URL   Proton HTTP query endpoint   (default http://proton:8123)
-  PROTON_INGEST_URL  Proton HTTP ingest endpoint  (default http://proton:3218)
-  PROTON_GATE_AGENT  agent label for the session log (claude-code | codex)
-  PROTON_GATE_STATE  state dir                    (default ~/.cache/proton-gate)
+  PROTON_QUERY_URL             Proton HTTP query endpoint   (default http://proton:8123)
+  PROTON_INGEST_URL            Proton HTTP ingest endpoint  (default http://proton:3218)
+  PROTON_GATE_AGENT            agent label for the session log (claude-code | codex)
+  PROTON_GATE_STATE            state dir                    (default ~/.cache/proton-gate)
+  PROTON_GATE_INTERRUPT_TTL_S  how long an interrupt stays armed (default 60)
+  PROTON_GATE_TIMEOUT_S        per-request timeout to Proton (default 1.5)
 """
 
 from __future__ import annotations
@@ -36,12 +48,28 @@ from pathlib import Path
 QUERY_URL = os.environ.get("PROTON_QUERY_URL", "http://proton:8123")
 INGEST_URL = os.environ.get("PROTON_INGEST_URL", "http://proton:3218")
 STATE_DIR = Path(os.environ.get("PROTON_GATE_STATE", Path.home() / ".cache" / "proton-gate"))
-TIMEOUT_S = 1.5
+TIMEOUT_S = float(os.environ.get("PROTON_GATE_TIMEOUT_S", "1.5"))
+INTERRUPT_TTL_S = int(os.environ.get("PROTON_GATE_INTERRUPT_TTL_S", "60"))
+RESUME_TOKEN = "[resume]"
 
+# One lookup per hook call. Proton normalizes the incoming call with the same
+# agent_call_target() the detectors use, so "is this the call the decision is
+# about?" has one definition. Returns:
+#   - halt / resume rows newer than what this hook has already applied
+#   - interrupts that are still fresh, each with `matches` for this call
 ACTIONS_SQL = (
-    "SELECT action, reason, hint, to_unix_timestamp64_milli(_tp_time) AS t "
-    "FROM table(agent_actions) "
-    "WHERE session_id = {sid:string} AND to_unix_timestamp64_milli(_tp_time) > {since:int64} "
+    "SELECT action, detector, target, hint, reason, t, fresh, incoming, "
+    "  (target = '' OR incoming = '' OR incoming = target "
+    "   OR (length(incoming) >= 4 AND (position(target, incoming) > 0 OR position(incoming, target) > 0))) AS matches "
+    "FROM ("
+    "  SELECT action, detector, target, hint, reason, "
+    "         to_unix_timestamp64_milli(_tp_time) AS t, "
+    "         to_unix_timestamp64_milli(now64(3)) - t <= {ttl:int64} * 1000 AS fresh, "
+    "         agent_call_target({args:string}) AS incoming "
+    "  FROM table(agent_actions) "
+    "  WHERE session_id = {sid:string}"
+    ") "
+    "WHERE (action IN ('halt', 'resume') AND t > {since:int64}) OR (action = 'interrupt' AND fresh) "
     "ORDER BY t FORMAT JSONEachRow"
 )
 
@@ -49,28 +77,31 @@ ACTIONS_SQL = (
 # --------------------------------------------------------------------------
 # Proton I/O
 # --------------------------------------------------------------------------
-def fetch_actions(session_id: str, since_ms: int) -> list[dict]:
-    qs = urllib.parse.urlencode({"param_sid": session_id, "param_since": since_ms})
+def fetch_actions(session_id: str, since_ms: int, call_args: str = "") -> list[dict]:
+    qs = urllib.parse.urlencode({"param_sid": session_id, "param_since": since_ms,
+                                 "param_ttl": INTERRUPT_TTL_S, "param_args": call_args})
     req = urllib.request.Request(f"{QUERY_URL}/?{qs}", data=ACTIONS_SQL.encode(), method="POST")
     with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
         return [json.loads(line) for line in resp.read().decode().splitlines() if line.strip()]
 
 
-def append_log(session_id: str, agent: str, event_type: str, content: str) -> None:
-    body = json.dumps({
-        "columns": ["session_id", "agent", "event_type", "content"],
-        "data": [[session_id, agent, event_type, content[:4000]]],
-    }).encode()
-    req = urllib.request.Request(f"{INGEST_URL}/proton/v1/ingest/streams/agent_session_log",
+def ingest(stream: str, row: dict) -> None:
+    body = json.dumps({"columns": list(row), "data": [list(row.values())]}).encode()
+    req = urllib.request.Request(f"{INGEST_URL}/proton/v1/ingest/streams/{stream}",
                                  data=body, headers={"Content-Type": "application/json"}, method="POST")
     try:
         urllib.request.urlopen(req, timeout=TIMEOUT_S).read()
     except Exception:
-        pass  # the log is best-effort
+        pass  # best-effort
+
+
+def append_log(session_id: str, agent: str, event_type: str, content: str) -> None:
+    ingest("agent_session_log", {"session_id": session_id, "agent": agent,
+                                 "event_type": event_type, "content": content[:4000]})
 
 
 # --------------------------------------------------------------------------
-# per-session state: which actions we've already applied, and whether halted
+# per-session state, so each decision is applied exactly once
 # --------------------------------------------------------------------------
 class State:
     def __init__(self, session_id: str):
@@ -80,15 +111,31 @@ class State:
             d = json.loads(self.path.read_text())
         except Exception:
             d = {}
-        self.ack_ms: int = d.get("ack_ms", 0)
+        self.ack_ms: int = d.get("ack_ms", 0)            # halt/resume rows applied up to here
+        self.resume_ms: int = d.get("resume_ms", 0)      # decisions before the last resume are void
+        self.consumed: list[int] = d.get("consumed", [])  # interrupts already used (their t)
         self.halted: str | None = d.get("halted")
 
     def save(self) -> None:
         try:
             STATE_DIR.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({"ack_ms": self.ack_ms, "halted": self.halted}))
+            self.path.write_text(json.dumps({"ack_ms": self.ack_ms, "resume_ms": self.resume_ms,
+                                             "consumed": self.consumed[-100:], "halted": self.halted}))
         except Exception:
             pass
+
+    def apply(self, rows: list[dict]) -> list[dict]:
+        """Apply halt/resume rows in order; return the interrupts still pending."""
+        for r in rows:
+            t = int(r["t"])
+            if r["action"] in ("halt", "resume") and t > self.ack_ms:
+                if r["action"] == "resume":
+                    self.halted, self.resume_ms = None, max(self.resume_ms, t)
+                elif t > self.resume_ms:
+                    self.halted = r["hint"] or r["reason"]
+                self.ack_ms = t
+        return [r for r in rows if r["action"] == "interrupt"
+                and int(r["t"]) > self.resume_ms and int(r["t"]) not in self.consumed]
 
 
 def summarize_call(tool_name: str, tool_input) -> str:
@@ -100,12 +147,26 @@ def summarize_call(tool_name: str, tool_input) -> str:
     return f"{tool_name}: {json.dumps(tool_input)[:300]}"
 
 
+def call_args(tool_input) -> str:
+    return tool_input if isinstance(tool_input, str) else json.dumps(tool_input or {})
+
+
 # --------------------------------------------------------------------------
 # the decision
 # --------------------------------------------------------------------------
 def deny(event: str, reason: str) -> dict:
     return {"hookSpecificOutput": {"hookEventName": event, "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
+
+
+def resume(session_id: str, agent: str, by: str) -> None:
+    """Lift a halt (and void pending interrupts) for a session. Recorded in agent_actions."""
+    ingest("agent_actions", {"session_id": session_id, "action": "resume", "detector": by,
+                             "reason": f"resumed by {by}", "hint": "", "tool_name": "", "target": ""})
+    state = State(session_id)
+    state.halted, state.resume_ms = None, int(time.time() * 1000)
+    state.save()
+    append_log(session_id, agent, "control", f"resume -> halt lifted by {by}")
 
 
 def handle(payload: dict, agent: str) -> dict | None:
@@ -115,42 +176,47 @@ def handle(payload: dict, agent: str) -> dict | None:
         return None
 
     if event == "UserPromptSubmit":
-        append_log(sid, agent, "user_prompt", str(payload.get("prompt", "")))
+        prompt = str(payload.get("prompt", ""))
+        append_log(sid, agent, "user_prompt", prompt)
+        if RESUME_TOKEN in prompt.lower():
+            resume(sid, agent, "user")
         return None
 
     state = State(sid)
 
     if event == "PreToolUse":
-        if not state.halted:
-            new = fetch_actions(sid, state.ack_ms)
-            if new:
-                state.ack_ms = max(a["t"] for a in new)
-                halts = [a for a in new if a["action"] == "halt"]
-                if halts:
-                    state.halted = halts[-1]["hint"] or halts[-1]["reason"]
-                state.save()
-                interrupts = [a for a in new if a["action"] == "interrupt"]
-                if not state.halted and interrupts:
-                    hint = interrupts[-1]["hint"] or interrupts[-1]["reason"]
-                    append_log(sid, agent, "control", f"interrupt -> blocked {summarize_call(payload.get('tool_name', ''), payload.get('tool_input'))}")
-                    return deny("PreToolUse", hint)
+        tool, tool_input = payload.get("tool_name", ""), payload.get("tool_input")
+        try:
+            rows = fetch_actions(sid, state.ack_ms, call_args(tool_input))
+        except Exception:
+            if not state.halted:
+                raise          # Proton unreachable: fail open
+            rows = []          # ...but a halt we already know about still stands
+        pending = state.apply(rows)
         if state.halted:
+            state.save()
             append_log(sid, agent, "control", "halt -> blocked tool call")
-            return deny("PreToolUse", state.halted)
-        return None
+            return deny("PreToolUse", f"{state.halted} (A person can type {RESUME_TOKEN} to continue.)")
+        hit = [r for r in pending if r["matches"]]
+        if hit:
+            state.consumed += [int(r["t"]) for r in hit]   # one block per decision
+            state.save()
+            append_log(sid, agent, "control", f"interrupt -> blocked {summarize_call(tool, tool_input)}")
+            return deny("PreToolUse", hit[-1]["hint"] or hit[-1]["reason"])
+        state.save()
+        return None   # no decision, or the agent has already moved on to a different call
 
     if event in ("PostToolUse", "PostToolUseFailure"):
         ok = event == "PostToolUse"
         append_log(sid, agent, "tool_call",
                    f"{'ok' if ok else 'FAILED'} {summarize_call(payload.get('tool_name', ''), payload.get('tool_input'))}")
         if not state.halted:
-            halts = [a for a in fetch_actions(sid, state.ack_ms) if a["action"] == "halt"]
-            if halts:
-                state.halted = halts[-1]["hint"] or halts[-1]["reason"]
-                state.save()
+            state.apply(fetch_actions(sid, state.ack_ms))
+            state.save()
         if state.halted:
             append_log(sid, agent, "control", "halt -> session stopped")
-            return {"continue": False, "stopReason": f"Halted by stream policy: {state.halted}"}
+            return {"continue": False,
+                    "stopReason": f"Halted by stream policy: {state.halted} Type {RESUME_TOKEN} to continue."}
         return None
 
     return None

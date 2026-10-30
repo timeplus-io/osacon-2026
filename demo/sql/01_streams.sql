@@ -7,6 +7,7 @@
 --   agent_session_log  the agent's own append-only log, written by its hooks
 --   agent_alerts       what the detectors found
 --   agent_actions      what the policy decided — the agent's hook reads this
+--                      (plus 'resume' rows when a person lifts a halt)
 -- ============================================================================
 
 CREATE STREAM IF NOT EXISTS otlp_logs_raw
@@ -51,15 +52,20 @@ CREATE STREAM IF NOT EXISTS agent_alerts
   detector    string,
   severity    string,
   detail      string,
-  evidence    string
+  evidence    string,
+  tool_name   string,   -- the tool call the pattern is about (empty for budget)
+  target      string    -- its normalized target, see agent_call_target()
 )
 COMMENT 'Detector output';
 
 CREATE STREAM IF NOT EXISTS agent_actions
 (
   session_id  string,
-  action      string,   -- interrupt | halt
+  action      string,   -- interrupt | halt | resume
   reason      string,
-  hint        string    -- handed to the agent as the reason its next tool call was blocked
+  hint        string,   -- handed to the agent as the reason a tool call was blocked
+  detector    string,   -- which detector (or 'user' / 'operator' for resume)
+  tool_name   string,   -- interrupt: the call it is aimed at
+  target      string    -- interrupt: blocks only a call with this target; empty = any call
 )
 COMMENT 'Decisions fed back to the running agent';

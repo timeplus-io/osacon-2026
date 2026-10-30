@@ -68,6 +68,8 @@ Pull the last hour of error-rate metrics with ./fetch_metrics.sh and summarize t
 
 Say: *"Different agent, different telemetry vocabulary — same SQL, same hook protocol."* When it falls back to `metrics-cache/`: *"Three failures, then it was told to stop retrying and look for another source."*
 
+If Codex gives up on its own after the third failure and goes straight to the cache, nothing is blocked — the interrupt is aimed at `./fetch_metrics.sh`, and Codex didn't call it again. Point at *Decisions* in Grafana: *"The stream decided; the agent had already moved on, so the hook let it through. It only blocks the call it's about."*
+
 ## Beat 3 — post-mortem (~30s)
 
 Grafana *Alerts by detector*, or in the SQL terminal paste **Q6** from `sql/queries.sql`: *"Same engine, now answering a historical question — across both agents."*
@@ -78,7 +80,11 @@ In Claude Code:
 ```
 Read every postmortem in postmortems/ and write a summary of recurring root causes to SUMMARY.md.
 ```
-When spend crosses the budget, the hook returns `continue: false` and Claude Code stops with the policy's reason.
+When spend crosses the budget, the hook returns `continue: false` and Claude Code stops with the policy's reason. To show recovery, type:
+```
+[resume] the extra spend is approved, carry on
+```
+The halt lifts (and a `resume` row lands in *Decisions*); the budget re-arms at 2×. Operator alternative: `scripts/resume.sh <session_id>`.
 
 ## If a live agent doesn't cooperate
 

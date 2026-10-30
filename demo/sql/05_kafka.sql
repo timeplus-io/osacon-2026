@@ -28,7 +28,9 @@ CREATE EXTERNAL STREAM IF NOT EXISTS agent_actions_kafka
   session_id string,
   action     string,
   reason     string,
-  hint       string
+  hint       string,
+  detector   string,
+  target     string
 )
 SETTINGS type = 'kafka',
          brokers = 'kafka:9092',
@@ -37,4 +39,4 @@ SETTINGS type = 'kafka',
          one_message_per_row = true;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_actions_to_kafka INTO agent_actions_kafka AS
-SELECT session_id, action, reason, hint FROM agent_actions;
+SELECT session_id, action, reason, hint, detector, target FROM agent_actions;

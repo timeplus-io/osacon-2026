@@ -83,15 +83,15 @@ The per-slide notes below keep the original numbering (1–13); the deck order i
 
 ## 8. A detector is a materialized view (1:30)
 
-**On screen:** `sql/03_detectors.sql`, D1. Highlight `PARTITION BY session_id` and `lags(call_key, 1, 4)`.
+**On screen:** `sql/03_detectors.sql`, D1. Highlight `PARTITION BY session_id`, `lags(call_key, 1, 12)` and `streak IN (4, 8, 12)`.
 
-> This is the loop detector, the whole thing. `PARTITION BY session_id` gives every session its own state. `lags` looks at that session's last four tool calls. Same tool, same target, four times in a row: fire, once. It runs forever; nobody schedules it; it doesn't care which agent it's watching.
+> This is the loop detector, the whole thing. `PARTITION BY session_id` gives every session its own state. `lags` looks back at that session's recent tool calls; `streak` counts identical ones in a row. Fourth identical call: fire. If the agent ignores the hint, again at 8 and 12. It runs forever; nobody schedules it; it doesn't care which agent it's watching.
 
 ## 9. The policy is SQL; the hook delivers it (1:15)
 
-**On screen:** left — `sql/04_policy.sql` (`multi_if` detector → `interrupt`/`halt` + hint text). Right — the hook's output: `{"permissionDecision": "deny", "permissionDecisionReason": "[stream policy] You have repeated the same tool call four times…"}`.
+**On screen:** left — `sql/04_policy.sql` (`multi_if` → `interrupt` aimed at a `target`, `halt` for budget or a third strike). Right — the four hook steps.
 
-> Alerts become actions with one more view, and the policy is reviewable SQL. Delivery: both Claude Code and Codex call a PreToolUse hook before every tool call. Ours asks Proton "anything for this session?" — a 2-millisecond query. If there's an interrupt, the call is denied and the reason is our hint. The model reads it like any tool result and changes course. Halt stops the session.
+> Alerts become actions with one more view, and the policy is reviewable SQL. Delivery: both Claude Code and Codex call a PreToolUse hook before every tool call. Ours asks Proton one question: is there a decision aimed at *this* call? One lookup, about a tenth of a second including the hook itself. Detection runs in the background — the agent never waits for the stream. A matching call is denied once, and the reason is our hint; the model reads it like any tool result and changes course. Any other call runs. Ignore the hint twice and it's a halt, which a person lifts by typing [resume].
 
 ## 10. Live demo (5:00)
 
@@ -107,7 +107,9 @@ Budget halt: show only if time allows (set `BUDGET_USD=0.15` beforehand), otherw
 
 **Held up**
 - Per-session state (`PARTITION BY`) instead of global windows.
-- Fire once, on the crossing. Detectors that fire every second are noise; models and humans both stop listening.
+- Fire once per threshold, on the crossing. Detectors that fire every second are noise; models and humans both stop listening.
+- Async detection, sync enforcement: the agent never waits for the stream; a decision applies to the next matching call.
+- Aim each decision at one call; block it once, let it expire, escalate if ignored.
 - Compare the normalized target, not raw arguments.
 - Interrupt before halt. A one-sentence hint usually fixes a loop; save halt for budgets.
 - Deliver through the agent's own hook — no fork, no wrapper, works for any agent with hooks.
@@ -138,7 +140,12 @@ Budget halt: show only if time allows (set `BUDGET_USD=0.15` beforehand), otherw
 
 ## Likely questions
 
-- **Why not put the checks in the agent's hook directly?** The hook only sees one call; the stream sees the whole session, every session, every agent, plus cost — and the logic is SQL you can test and review in one place. The hook stays a 2 ms lookup.
+- **Why not block the call that triggered the alert?** Detection is asynchronous by design — the agent never waits for the stream. The pattern takes four calls to form; the fifth is blocked. Single-call rules (`rm -rf`, secrets) belong in the hook or the agent's permissions, checked synchronously.
+- **Won't it block legitimate work?** An interrupt is aimed at the call it's about. If the agent has moved on, its next call runs. It blocks once, and expires after a minute.
+- **How do you recover from a halt?** A person types `[resume]` in the session (the hook sees it before the model), or an operator runs `scripts/resume.sh`. It's recorded in `agent_actions`. The budget re-arms at 2×.
+- **What if the stream is down?** No new decisions; the agent runs normally. The hook times out after 1.5 s and allows the call.
+
+- **Why not put the checks in the agent's hook directly?** The hook only sees one call; the stream sees the whole session, every session, every agent, plus cost — and the logic is SQL you can test and review in one place. The hook stays one lookup (~15 ms query).
 - **Latency?** ~100 ms inside Proton from event to decision; under a second from the agent's event to the decision being readable. It's applied at the next tool call, which comes seconds later anyway.
 - **What if Proton is down?** The hook fails open; the agent runs normally.
 - **Scale?** State is per session; partition the Kafka topic by session id.
