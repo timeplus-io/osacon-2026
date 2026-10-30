@@ -29,7 +29,7 @@ Claude Code / Codex ──OTel log events──▶ Collector ──otlp_json─�
 | `tool_errors` | failed calls in a row, streak = **3, 6, 9** | `tool_name`, `target` |
 | `budget` | session spend reaches each **multiple** of `$BUDGET_USD` or `BUDGET_TOKENS` (whichever comes first) | — |
 
-The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 100))`. It fires on every 4th call (not only 4/8/12), so an agent that keeps going keeps producing alerts. The open-loop/closed-loop stage beat uses `scripts/policy.sh off|on` = `SYSTEM PAUSE|RESUME MATERIALIZED VIEW mv_policy`. **Resume replays the backlog:** every alert that fired while paused becomes a decision at once (verified on Proton 3.0.32), so resume at `tool_loop` = 2 for an interrupt, 3+ gives a halt via the escalation rule. A paused view has no background query in `system.processes`; that is how `status` tells.
+The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 100))`. It fires on every 4th call (not only 4/8/12), so an agent that keeps going keeps producing alerts. The open-loop/closed-loop stage beat uses `scripts/policy.sh off|on` = `SYSTEM PAUSE|RESUME MATERIALIZED VIEW mv_policy`. **Resume replays the backlog:** every alert that fired while paused becomes a decision at once (verified on Proton 3.0.32), so resume at `tool_loop` = 2 for an interrupt, 3+ gives a halt via the escalation rule. A view's background query shows in `system.processes` with `query_id = '.mv-<view uuid>'` and disappears while paused; that is how `status` tells (matching on query text is wrong: Grafana's streaming panels read `agent_alerts` too).
 
 ### Policy (`sql/04_policy.sql`)
 - `budget` → `halt`
