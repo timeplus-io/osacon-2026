@@ -1,7 +1,7 @@
 # Talk outline and speaker notes
 
 **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to Agent Action**
-20 minutes + 5 minutes Q&A · 11 main slides + 4 backup · ~6 minutes of live demo (simulator by default; live Claude Code/Codex if rehearsals are reliable)
+20 minutes + 5 minutes Q&A · 12 main slides + 4 backup · ~5.5 minutes of live demo (simulator by default; live Claude Code/Codex if rehearsals are reliable)
 
 Ground rules for this venue (from the organizers): open source only, no commercial content, the room is livestreamed and recorded. The infrastructure on screen is all OSS (OpenTelemetry, Kafka, Proton, Grafana). The agents are the *clients* being observed — Codex is open source (Apache-2.0); Claude Code is not, so say once that the loop works the same for any agent that exports OTel and has hooks. No customer names; nothing confidential on slides, terminals, or in `.env`.
 
@@ -15,13 +15,14 @@ Ground rules for this venue (from the organizers): open source only, no commerci
 | 2 | Agents can act on their own telemetry | 1:00 | 1:30 |
 | 3 | What coding agents already emit | 1:30 | 3:00 |
 | 4 | Three failures that burn money in seconds | 1:30 | 4:30 |
-| 5 | The loop (architecture; Kafka bridge + one-schema view in one line) | 2:00 | 6:30 |
-| 6 | A detector is a materialized view | 2:00 | 8:30 |
-| 7 | The policy is SQL; the hook delivers it | 2:00 | 10:30 |
-| 8 | **Live demo** | 6:00 | 16:30 |
-| 9 | What held up, what didn't, what's still open | 2:00 | 18:30 |
-| 10 | Takeaway | 0:45 | 19:15 |
-| 11 | Run it yourself (QR) | 0:30 | 19:45 |
+| 5 | The loop (architecture; two readers: agent loop + optional Grafana) | 1:30 | 6:00 |
+| 6 | **Proton: SQL that never stops running** (what streaming SQL is) | 1:00 | 7:00 |
+| 7 | A detector is a materialized view | 2:00 | 9:00 |
+| 8 | The policy is SQL; the hook delivers it | 2:00 | 11:00 |
+| 9 | **Live demo** | 5:30 | 16:30 |
+| 10 | What held up, what didn't, what's still open | 2:00 | 18:30 |
+| 11 | Takeaway | 0:45 | 19:15 |
+| 12 | Run it yourself (QR) | 0:30 | 19:45 |
 | — | *Backup: divider, configuration, parse view, open problems* | Q&A only | |
 
 Cut from the main flow to fit 20 minutes: the configuration slide and the parse-SQL slide (one sentence each on the architecture slide now), and the standalone open-problems slide (now a one-line "still open" strip on the lessons slide). All three are in the backup section for Q&A.
@@ -73,6 +74,12 @@ The per-slide notes below keep the original numbering (1–13); the deck order i
 **On screen:** *Proton: Apache 2.0, single binary, ClickHouse-derived, streaming + historical SQL.* Then the heart of `sql/02_parse_otlp_logs.sql`: the `array_join` over `resourceLogs → scopeLogs → logRecords`, the `if(attrs['session.id'] != '', …, attrs['conversation.id'])` mapping, and `agent_call_target()` stripping `sleep N &&`.
 
 > One materialized view reads the topic, flattens OTLP, and maps both agents onto one schema. Detail that matters: agents rewrite the free-text bits of a tool call every time — a different description, a different sleep — so we compare the *target*, not the raw arguments. Otherwise you'll never see the loop.
+
+## New: Proton, SQL that never stops running (1:00)
+
+**On screen:** left — Proton in four facts (Apache-2.0 · one C++ binary · ClickHouse-derived · live + history). Right — the same filter two ways: `FROM agent_events` (streaming: never finishes, pushes each new row) vs `FROM table(agent_events)` (historical: scans and returns). Bottom — definition strip: *streaming SQL* and *materialized view*.
+
+> Quick primer before the detectors. Proton is an open-source streaming SQL engine — Apache-2.0, a single C++ binary, built on ClickHouse's columnar core. The one idea you need: a streaming query never finishes. Point a SELECT at a stream and it pushes each new matching row as it arrives; wrap it in `table()` and it scans what's stored and returns. A materialized view is a streaming query that runs forever and writes into another stream. Every detector and policy next is exactly that — no scheduler, no cron, no batch job.
 
 ## 8. A detector is a materialized view (1:30)
 
