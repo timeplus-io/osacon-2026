@@ -4,7 +4,7 @@ One demo, target **4 minutes**. Everything runs from `demo/`. The other scenario
 
 ## The idea in one line
 
-With the policy view **dropped**, Proton only observes: tool calls stream in, `tool_loop` alerts count up, nothing reaches the agent. **Creating the view** turns the next alert into a decision, the agent's own hook denies the next identical call, and the model stops polling and reports. The whole switch is one `CREATE MATERIALIZED VIEW`.
+With the policy view **paused**, Proton only observes: tool calls stream in, `tool_loop` alerts count up, nothing reaches the agent. **Resuming** it replays what was observed: the alerts that fired while paused become decisions at once, the agent's own hook denies its very next check, and the model stops polling and reports. The whole switch is `SYSTEM PAUSE` / `SYSTEM RESUME MATERIALIZED VIEW`.
 
 ## The night before
 
@@ -31,8 +31,8 @@ Then run the live demo below once, end to end, against the clock.
 ```bash
 docker compose up -d
 scripts/reset.sh          # empty streams, fresh schema, budgets from .env
-scripts/policy.sh off     # OPEN the loop: drops mv_policy; detectors keep running
-scripts/policy.sh status  # must print: loop OPEN (no mv_policy)
+scripts/policy.sh off     # OPEN the loop: pauses mv_policy; detectors keep running
+scripts/policy.sh status  # must print: loop OPEN (mv_policy paused)
 ```
 
 Open http://localhost:3000/d/closing-the-loop?kiosk (no auto-refresh: every panel streams).
@@ -48,7 +48,7 @@ Open http://localhost:3000/d/closing-the-loop?kiosk (no auto-refresh: every pane
 
 **1. Confirm the loop is open** (terminal B, before anyone looks):
 ```bash
-scripts/policy.sh status      # loop OPEN (no mv_policy)
+scripts/policy.sh status      # loop OPEN (mv_policy paused)
 ```
 
 **2. Start the agent** (terminal A):
@@ -60,17 +60,17 @@ Prompt (copy exactly):
 Deploy #4182 is rolling out. Keep checking it with ./check_deploy.sh every ~10 seconds until it finishes, then tell me the result. Run each check as its own command, not a loop or a background job, so I can watch them.
 ```
 
-**3. Let it poll, 20–40 s (8–16 checks).** Say:
+**3. Let it poll until *Alerts by detector* shows `tool_loop` = 2** (8 checks: ~20 s at the 2 s cadence the model tends to use, ~80 s at 10 s). Don't wait for 3: a third alert in the backlog escalates to a halt on resume (still a stop, but a hard one; see below). Say:
 > *"It's doing what I asked. The deploy will never finish. Watch the right side: tool calls streaming in, `tool_loop` alerts counting up, and nothing in Decisions. Right now this is observability. Everyone has this."*
 
-**4. Close the loop** (terminal B). Say *"One materialized view closes the loop. This is the SQL on the 'Decide and deliver' slide."* Then either:
+**4. Close the loop** (terminal B). Say *"One materialized view closes the loop. It's the SQL on the 'Decide and deliver' slide, and it has been paused. Resume it."* Then either:
 ```bash
-scripts/policy.sh on          # = proton client --multiquery < sql/04_policy.sql
+scripts/policy.sh on          # = SYSTEM RESUME MATERIALIZED VIEW mv_policy
 ```
-or, for the live-typing version, paste the `CREATE MATERIALIZED VIEW mv_policy ...` statement from `sql/04_policy.sql` into `docker compose exec proton proton client`.
+or, for the live-typing version, type `SYSTEM RESUME MATERIALIZED VIEW mv_policy` into `docker compose exec proton proton client`.
 
-**5. Watch it land.** The detector fires on every 4th identical check, so within at most four more checks:
-- a row appears in *Decisions*: *"Proton decided, ~100 ms after the event arrived."*
+**5. Watch it land.** Resume replays the backlog, so this is immediate:
+- two rows appear in *Decisions* at once: *"Proton caught up on what it had observed and decided, in about 100 ms."*
 - Claude Code shows the denied call with the policy's sentence: *"Its own PreToolUse hook asked Proton, got 'interrupt', and denied the call. That sentence is now in front of the model."*
 - the model answers: *"And it stops polling and tells me the deploy is stuck."*
 
@@ -80,10 +80,10 @@ or, for the live-typing version, paste the `CREATE MATERIALIZED VIEW mv_policy .
 
 | | command | effect |
 |---|---|---|
-| open | `scripts/policy.sh off` → `DROP VIEW IF EXISTS mv_policy` | alerts still written to `agent_alerts`; `agent_actions` gets nothing; hooks allow everything |
-| close | `scripts/policy.sh on` → applies `sql/04_policy.sql` | from the next alert on, `agent_actions` gets a decision; the hook denies the next matching call |
+| open | `scripts/policy.sh off` → `SYSTEM PAUSE MATERIALIZED VIEW mv_policy` | alerts still written to `agent_alerts`; `agent_actions` gets nothing; hooks allow everything |
+| close | `scripts/policy.sh on` → `SYSTEM RESUME MATERIALIZED VIEW mv_policy` | the view replays every alert that fired while paused, each becomes a decision now; then it runs live. The hook denies the next matching call once (all replayed interrupts count as one block). |
 
-The view starts from "now": alerts that fired while the loop was open are not replayed. That is why the detector fires on every 4th identical call rather than only at 4/8/12.
+The backlog follows the normal policy: the third failing pattern in a session is a halt. Resume at `tool_loop` = 2 and the agent gets an interrupt with the hint. Resume at 3 or more and it gets a halt: every call is denied, the turn ends with "Halted by stream policy", and you type `[resume] carry on` in Claude Code to lift it. Both are a stop; the interrupt is the nicer story. Resume before `docker compose down`: Proton asks not to restart while a view is paused (`scripts/reset.sh` recreates it running).
 
 ## If the agent doesn't cooperate
 
@@ -100,5 +100,5 @@ The view starts from "now": alerts that fired while the loop was open are not re
 
 - **No events in Grafana:** `docker compose logs otel-collector | tail`, then terminal **Q7** from `sql/queries.sql` (raw payloads off Kafka).
 - **Grafana panels empty but SQL works:** present from the terminal (**Q1** live tail, **Q3** decisions).
-- **`policy.sh on` fails:** `scripts/reset.sh`, then `scripts/policy.sh off` again, restart the agent.
+- **`policy.sh on` fails or `status` is wrong:** `scripts/reset.sh` (recreates the view, running), then `scripts/policy.sh off` again, restart the agent.
 - **Anything worse:** play the backup video.

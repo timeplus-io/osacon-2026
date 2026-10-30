@@ -29,7 +29,7 @@ Claude Code / Codex ──OTel log events──▶ Collector ──otlp_json─�
 | `tool_errors` | failed calls in a row, streak = **3, 6, 9** | `tool_name`, `target` |
 | `budget` | session spend reaches each **multiple** of `$BUDGET_USD` or `BUDGET_TOKENS` (whichever comes first) | — |
 
-The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 100))`. Firing on every 4th call (not only 4/8/12) is what makes the open-loop/closed-loop stage beat work: `scripts/policy.sh off|on` drops / recreates `mv_policy`, and a view created late gets its first alert within four calls.
+The streak is `array_first_index(x -> x != call_key, lags(call_key, 1, 100))`. It fires on every 4th call (not only 4/8/12), so an agent that keeps going keeps producing alerts. The open-loop/closed-loop stage beat uses `scripts/policy.sh off|on` = `SYSTEM PAUSE|RESUME MATERIALIZED VIEW mv_policy`. **Resume replays the backlog:** every alert that fired while paused becomes a decision at once (verified on Proton 3.0.32), so resume at `tool_loop` = 2 for an interrupt, 3+ gives a halt via the escalation rule. A paused view has no background query in `system.processes`; that is how `status` tells.
 
 ### Policy (`sql/04_policy.sql`)
 - `budget` → `halt`
@@ -78,7 +78,7 @@ demo/
                             metrics-cache/, postmortems/ (fictional)
   grafana/provisioning/     Proton datasource + dashboard "closing-the-loop"
   scripts/apply-sql.sh      apply schema (idempotent); reset.sh (teardown + reapply); resume.sh;
-                            policy.sh off|on (drop / recreate mv_policy: open or close the loop on stage)
+                            policy.sh off|on (SYSTEM PAUSE / RESUME mv_policy: open or close the loop on stage)
   tests/e2e_test.py         25 checks through Kafka; mini_collector.py (OTLP → Kafka stand-in); otlp_fixtures.py
 docs/architecture.md        architecture, schema mapping, "How a decision reaches the agent", recovery
 talk/                       abstract, outline (timings, notes, Q&A), demo-runbook (the one on-stage demo: Claude Code
