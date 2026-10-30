@@ -40,9 +40,9 @@ The per-slide notes below keep the original numbering (1–13); the deck order i
 
 ## 2. Agents are the first systems that can act on their own telemetry (1:00)
 
-**On screen:** *"Observe later" is a postmortem. Agents need "observe now, act now."*
+**On screen:** illustration (dashboard-only vs. closed loop) + *"The same stream can feed two readers: a dashboard for humans, and a hook that hands decisions back to the agent."*
 
-> For twenty years telemetry has been for humans: dashboards, alerts, someone looks during an incident. Agents produce far more of it — every step is a model call or a tool call — and they're the first systems that can read a signal about themselves and change course. If the only consumer of agent telemetry is a dashboard, we're leaving the most useful reader out.
+> For twenty years telemetry has been for humans: dashboards, alerts, someone looks during an incident. Agents produce far more of it — every step is a model call or a tool call — and they're the first systems that can read a signal about themselves and change course. So the same stream gets a second reader: the agent itself. The dashboard stays, for us; the loop doesn't need it.
 
 ## 3. What coding agents already emit (1:30)
 
@@ -58,9 +58,9 @@ The per-slide notes below keep the original numbering (1–13); the deck order i
 
 ## 5. The loop (0:45)
 
-**On screen:** the diagram from `docs/architecture.md`: agent → OTel Collector → Kafka → Proton (parse → detect → policy) → hook → back into the agent; Grafana watching.
+**On screen:** agent → OTel Collector → Kafka → Proton (parse → detect → policy), then two branches: **pink** `agent_actions` → PreToolUse hook → back into the agent ("for the agent: the loop"), and **gray** Grafana ("for humans: optional").
 
-> Signal goes out over standard OpenTelemetry. Kafka carries it. Proton turns it into decisions with streaming SQL. The decision comes back through the agent's own hook — before its next tool call. Nothing custom in the middle, nothing patched in the agent.
+> Signal goes out over standard OpenTelemetry. Kafka carries it. Proton turns it into decisions with streaming SQL. The decision comes back through the agent's own hook — before its next tool call. Nothing custom in the middle, nothing patched in the agent. Two readers of the same stream: the pink branch is the loop, the gray one is Grafana for us — optional; delete it and the loop still works.
 
 ## 6. Signal: OTel → Collector → Kafka (1:15)
 

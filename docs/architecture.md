@@ -28,7 +28,7 @@ flowchart LR
         AC[agent_actions]
     end
 
-    G[Grafana<br/>Proton data source]
+    G[Grafana<br/>for humans · optional]
 
     CC & CX & SIM -->|OTel log events| C --> K1 -->|external stream| R --> P --> E
     E --> D1 & D2 & D3 --> AL --> PO --> AC
@@ -36,8 +36,21 @@ flowchart LR
     H -->|before every tool call| AC
     H -->|deny + reason / continue:false| CC & CX & SIM
     H -->|prompts, calls, decisions| SL
-    E & AC & AL --> G
+    E & AC & AL -.-> G
+
+    linkStyle default stroke-width:1.5px
 ```
+
+## Two readers of the same stream
+
+The pipeline has two consumers, and only one of them is required:
+
+| Branch | Reader | Path | Needed for the loop? |
+|---|---|---|---|
+| **The loop** | the agent | `agent_actions` → PreToolUse hook → deny / `continue:false` | **Yes** — this is the loop |
+| **Monitoring** | humans | streams → Grafana dashboards | No — remove Grafana and the loop still works |
+
+Classic observability has only the second branch. The point of this demo is the first: the agent reads decisions derived from its own telemetry, before its next tool call, with no human in the path.
 
 ## Why Kafka is in the middle
 
