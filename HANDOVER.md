@@ -4,7 +4,7 @@ Talk: **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to
 
 Deck (Google Slides): https://docs.google.com/presentation/d/1BJQw398uOurzPfrzBuMDtBnCwht_Q3Zo_JtTvmJarbA/edit
 The backup slides "Detect" and "Decide and deliver" show SQL from `demo/sql/03_detectors.sql` and `04_policy.sql`, and the main "The pipeline" slide (data lineage) names every stream and materialized view. **If you change those files, update the slides too** (or tell whoever owns the deck).
-**Deck is out of date as of 2026-10-30:** backup slide "Detect" must show `lags(call_key, 1, 100)` and `WHERE streak >= 4 AND streak % 4 = 0` (was `1, 12` / `streak IN (4, 8, 12)`); backup slide "Decide and deliver" must show the `live` flag and `lags(if(is_pattern AND live, detector, ''), 1, 2)` in the escalation subquery.
+Deck updated 2026-10-31 to match the current SQL: "Detect" shows `lags(call_key, 1, 100)` and `WHERE streak >= 4 AND streak % 4 = 0`; "Decide and deliver" shows the `live` flag and `lags(if(is_pattern AND live, detector, ''), 1, 2)`.
 
 ---
 

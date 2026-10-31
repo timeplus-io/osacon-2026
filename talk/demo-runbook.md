@@ -63,7 +63,7 @@ Deploy #4182 is rolling out. Keep checking it with ./check_deploy.sh until it fi
 **3. Let it poll while you talk, 30–60 s.** Checks land 2–3 s apart (Claude Code blocks foreground `sleep` in Bash, so the model can't space them out), and `tool_loop` ticks up every 4th check. Resume while it is still polling: a model left alone long enough gives up on its own, and then there is nothing left to deny. Say:
 > *"It's doing what I asked. The deploy will never finish. Watch the right side: tool calls streaming in, `tool_loop` alerts counting up, and nothing in Decisions. Right now this is observability. Everyone has this."*
 
-**4. Close the loop** (terminal B). Say *"One materialized view closes the loop. It's the SQL on the 'Decide and deliver' slide, and it has been paused. Resume it."* Then either:
+**4. Close the loop** (terminal B). Say *"One materialized view closes the loop. It's `mv_policy`, the last pink card on the pipeline slide, and it has been paused. Resume it."* Then either:
 ```bash
 scripts/policy.sh on          # = SYSTEM RESUME MATERIALIZED VIEW mv_policy
 ```
