@@ -1,9 +1,11 @@
 # Talk outline and speaker notes
 
 **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to Agent Action**
-20 minutes + 5 minutes Q&A · 12 main slides + 7 backup · ~5.5 minutes of live demo (simulator by default; live Claude Code/Codex if rehearsals are reliable)
+20 minutes + 5 minutes Q&A · 11 main slides + 8 backup · one 4-minute live demo (Claude Code polling loop; the simulator is the fallback)
 
-Ground rules for this venue (from the organizers): open source only, no commercial content, the room is livestreamed and recorded. The infrastructure on screen is all OSS (OpenTelemetry, Kafka, Proton, Grafana). The agents are the *clients* being observed — Codex is open source (Apache-2.0); Claude Code is not, so say once that the loop works the same for any agent that exports OTel and has hooks. No customer names; nothing confidential on slides, terminals, or in `.env`.
+Ground rules for this venue (from the organizers): open source only, no commercial content, the room is livestreamed and recorded. The infrastructure on screen is all OSS (OpenTelemetry, Kafka, Proton, Grafana). The agents are the *clients* being observed: Codex is open source (Apache-2.0); Claude Code is not, so say once that the loop works the same for any agent that exports OTel and has hooks. No customer names; nothing confidential on slides, terminals, or in `.env`.
+
+The speaker notes in the deck are the source of truth for what to say; this file mirrors them in short form.
 
 ---
 
@@ -13,134 +15,108 @@ Ground rules for this venue (from the organizers): open source only, no commerci
 |---|---|---|---|
 | 1 | Title | 0:30 | 0:30 |
 | 2 | Agents can act on their own telemetry | 1:00 | 1:30 |
-| 3 | What coding agents already emit | 1:30 | 3:00 |
-| 4 | Three failures that burn money in seconds | 1:30 | 4:30 |
-| 5 | The loop (architecture; two readers: agent loop + optional Grafana) | 1:30 | 6:00 |
-| 6 | Proton: SQL that never stops running | 1:00 | 7:00 |
-| 7 | Inside Proton | 0:45 | 7:45 |
-| 8 | **The pipeline** — data lineage: thin streams, materialized views do the work; async detection, sync enforcement | 2:30 | 10:15 |
-| 9 | **Live demo** | 5:30 | 15:45 |
-| 10 | What held up, what didn't, what's still open | 2:00 | 17:45 |
-| 11 | Takeaway | 0:45 | 18:30 |
-| 12 | Run it yourself (QR) | 0:30 | 19:00 |
-| — | *Backup: divider, detector SQL, policy + hook, configuration, parse view, open problems, timing* | Q&A only | |
+| 3 | Agents already speak OpenTelemetry | 1:00 | 2:30 |
+| 4 | Three agent failures burn money within seconds | 1:30 | 4:00 |
+| 5 | The loop: signal out, decision back in | 1:30 | 5:30 |
+| 6 | Timeplus Proton: SQL that never stops running | 1:00 | 6:30 |
+| 7 | Inside Proton | 0:45 | 7:15 |
+| 8 | The pipeline: streams hold data, views do the work | 2:30 | 9:45 |
+| 9 | **Live demo**: observe first, then one SQL view closes the loop | 4:00 | 13:45 |
+| 10 | Summary: why Proton | 1:00 | 14:45 |
+| 11 | Try it yourself (links, QR to timeplus.com) | 0:30 | 15:15 |
+| — | *Backup: divider, agent events, detect, decide and deliver, configuration, parse view, timing, open problems* | Q&A only | |
 
-Cut from the main flow to fit 20 minutes: the configuration slide and the parse-SQL slide (one sentence each on the architecture slide now), and the standalone open-problems slide (now a one-line "still open" strip on the lessons slide). All three are in the backup section for Q&A.
-
-If the demo runs long, drop the "still open" strip to one sentence. If a live agent doesn't cooperate, switch to the simulator (same pipeline) — see `demo-runbook.md`. Don't debug on stage.
-
-The per-slide notes below keep the original numbering (1–13); the deck order is above.
+About 4:45 of slack. Spend it on the demo if the agent is slow; otherwise take questions early. If a live agent doesn't cooperate, switch to the simulator (same pipeline), see `demo-runbook.md`. Don't debug on stage.
 
 ---
 
 ## 1. Title (0:30)
 
-**On screen:** title, name, repo URL `github.com/timeplus-io/osacon-2026`.
+> I work on Proton, an open-source streaming SQL engine. Today is about a loop every team running coding agents will need, built from open parts. Everything I show is in the repo at the end, and it runs with one `docker compose up`.
 
-> I work on Proton, an open-source streaming SQL engine. Today is about a loop every team running coding agents will need, built from open parts. Everything I show is in that repo — one `docker compose up`.
+## 2. Agents can act on their own telemetry (1:00)
 
-## 2. Agents are the first systems that can act on their own telemetry (1:00)
+**On screen:** illustration (dashboard-only vs. closed loop) and *"The same data pipeline can feed two readers: a dashboard for humans, and a hook that hands decisions back to the agent."*
 
-**On screen:** illustration (dashboard-only vs. closed loop) + *"The same stream can feed two readers: a dashboard for humans, and a hook that hands decisions back to the agent."*
+> For twenty years telemetry has had one reader: a human, through a dashboard or an alert. Agents produce far more of it, because every step is a model call or a tool call, and they are the first systems that can read a signal about themselves and change course. So the same stream gets a second reader: the agent itself. The dashboard stays, for us; the loop doesn't need it.
 
-> For twenty years telemetry has been for humans: dashboards, alerts, someone looks during an incident. Agents produce far more of it — every step is a model call or a tool call — and they're the first systems that can read a signal about themselves and change course. So the same stream gets a second reader: the agent itself. The dashboard stays, for us; the loop doesn't need it.
+## 3. Agents already speak OpenTelemetry (1:00)
 
-## 3. What coding agents already emit (1:30)
+**On screen:** coding agent → *built in* → OpenTelemetry → logs/events (pink), metrics, traces. Bar: *"Nobody has to instrument anything. The signal is already there."*
 
-**On screen:** two real OTel log events side by side — `claude_code.tool_result` (`session.id`, `tool_name`, `success`, `duration_ms`, `tool_input`) and `codex.tool_result` (`conversation.id`, `tool_name`, `success`, `arguments`); below them `api_request` / `sse_event` with tokens and cost.
+> OpenTelemetry is the open standard for telemetry: one protocol, OTLP, for logs, metrics and traces. Claude Code and Codex have it built in; a few environment variables or one config block turn it on. The part we use is the log events: one for every tool call and model call, with the tool, its arguments, success, tokens and cost. (Example events side by side: backup.)
 
-> Claude Code and Codex both already export OpenTelemetry — log events for every tool call and every model call, with tokens, cost, success, and the arguments. You turn it on with a few environment variables. Different names for the same things — we'll deal with that in one SQL view. The point: the signal exists today; nobody has to instrument anything.
+## 4. Three agent failures burn money within seconds (1:30)
 
-## 4. Failures that happen in seconds (1:15)
+**On screen:** three illustrated cards: polling loop, retry storm, runaway spend, each with its signature in the telemetry.
 
-**On screen:** three cards — **Polling loop** (waits for something that never finishes) · **Retry storm** (a dependency is down; the agent hammers it) · **Runaway spend** (re-reads everything, every step).
+> If you have run coding agents you have seen all three. By the time a human looks at a dashboard, the agent has made dozens of calls and spent real money. Each failure has a clear signature in the telemetry, which is what makes it detectable in SQL. Today's demo is the first one; the other two are in the repo.
 
-> If you've run coding agents you've seen all three. By the time a human looks at a dashboard, the agent has made dozens of calls and spent real money. An agent loops every few seconds; a five-minute alert is a very long time.
+## 5. The loop: signal out, decision back in (1:30)
 
-## 5. The loop (0:45)
+**On screen:** coding agent → OTel Collector → Apache Kafka → Proton → Grafana, and the pink loop underneath: Proton → `agent_actions` → PreToolUse hook → agent.
 
-**On screen:** agent → OTel Collector → Kafka → Proton (parse → detect → policy), then two branches: **pink** `agent_actions` → PreToolUse hook → back into the agent ("for the agent: the loop"), and **gray** Grafana ("for humans: optional").
+> Signal goes out over standard OpenTelemetry. Proton doesn't speak OTLP and doesn't need to: the Collector writes OTLP/JSON to Kafka. Proton turns it into decisions with streaming SQL, and the agent's own PreToolUse hook reads them before its next tool call. Two readers of one stream: the pink loop runs with nobody watching; Grafana is for us, and optional.
 
-> Signal goes out over standard OpenTelemetry. Kafka carries it. Proton turns it into decisions with streaming SQL. The decision comes back through the agent's own hook — before its next tool call. Nothing custom in the middle, nothing patched in the agent. Two readers of the same stream: the pink branch is the loop, the gray one is Grafana for us — optional; delete it and the loop still works.
+## 6. Timeplus Proton: SQL that never stops running (1:00)
 
-## 6. Signal: OTel → Collector → Kafka (1:15)
+**On screen:** four facts (Apache-2.0, one C++ binary, ClickHouse-derived, live + history) and the same query streaming (`FROM agent_events`) and historical (`FROM table(agent_events)`).
 
-**On screen:** the Claude Code env vars (5 lines), the Codex `[otel]` block (3 lines), the Collector's `kafka` exporter with `encoding: otlp_json`.
+> A streaming query never finishes: point a SELECT at a stream and it pushes each new matching row as it arrives. Wrap it in `table()` and it scans what's stored and returns. A materialized view is a streaming query that runs forever and writes into another stream. Every detector and policy here is one. No scheduler, no cron.
 
-> Turning it on is configuration. The Collector writes OTLP/JSON to a Kafka topic. Why Kafka? Proton doesn't speak OTLP — and it shouldn't have to: Kafka is the bridge everyone already runs, and it's where the decisions fan back out too.
+## 7. Inside Proton (0:45)
 
-## 7. Engine: Proton — two vocabularies, one schema (1:30)
+> One binary. Writes land in NativeLog, an append-only streaming log, and in a columnar historical store. Streaming queries read the log; batch queries read the store. External streams read Kafka, Redpanda or Pulsar directly; the OTel topic in this demo is one.
 
-**On screen:** *Proton: Apache 2.0, single binary, ClickHouse-derived, streaming + historical SQL.* Then the heart of `sql/02_parse_otlp_logs.sql`: the `array_join` over `resourceLogs → scopeLogs → logRecords`, the `if(attrs['session.id'] != '', …, attrs['conversation.id'])` mapping, and `agent_call_target()` stripping `sleep N &&`.
+## 8. The pipeline: streams hold data, views do the work (2:30)
 
-> One materialized view reads the topic, flattens OTLP, and maps both agents onto one schema. Detail that matters: agents rewrite the free-text bits of a tool call every time — a different description, a different sleep — so we compare the *target*, not the raw arguments. Otherwise you'll never see the loop.
+**On screen:** data lineage: `otlp_logs` → `mv_otlp_logs_to_events` → `agent_events` → `mv_detect_*` → `agent_alerts` → `mv_policy` → `agent_actions` → PreToolUse hook.
 
-## New: Proton, SQL that never stops running (1:00)
+> The streams are thin; the pink cards are materialized views and they do all the work. One parses OTLP into one schema for both agents. Three detectors keep per-session state: four identical calls in a row, three failures in a row, spend over budget. The policy turns alerts into decisions aimed at one specific tool call.
+>
+> The key design choice: detection is asynchronous, enforcement is synchronous. The agent never waits for the views. Before every tool call its hook does one lookup: is there a decision aimed at this call? A match is blocked once, with the policy's hint as the reason the model reads. Ignore the hint twice and it's a halt, which a person lifts with `[resume]`.
 
-**On screen:** left — Proton in four facts (Apache-2.0 · one C++ binary · ClickHouse-derived · live + history). Right — the same filter two ways: `FROM agent_events` (streaming: never finishes, pushes each new row) vs `FROM table(agent_events)` (historical: scans and returns). Bottom — definition strip: *streaming SQL* and *materialized view*.
+## 9. Live demo (4:00)
 
-> Quick primer before the detectors. Proton is an open-source streaming SQL engine — Apache-2.0, a single C++ binary, built on ClickHouse's columnar core. The one idea you need: a streaming query never finishes. Point a SELECT at a stream and it pushes each new matching row as it arrives; wrap it in `table()` and it scans what's stored and returns. A materialized view is a streaming query that runs forever and writes into another stream. Every detector and policy next is exactly that — no scheduler, no cron, no batch job.
+Follow `demo-runbook.md`. Before going on stage the policy view is paused (`scripts/policy.sh off`), so the loop is open.
 
-## 8. A detector is a materialized view (1:30)
+1. **Observe** (30–60 s). Claude Code is told to wait for deploy #4182 with `./check_deploy.sh`. It polls. *"Tool calls stream in, `tool_loop` alerts count up, and nothing in Decisions. Right now this is observability. Everyone has this."*
+2. **Close the loop.** *"One materialized view closes the loop, and it has been paused. Resume it."* `scripts/policy.sh on` (`SYSTEM RESUME MATERIALIZED VIEW mv_policy`).
+3. **Watch it land.** Proton replays what it observed: the alerts become decisions at once, the hook denies the next check with the policy's sentence, and the model stops polling and reports the deploy is stuck. *"Detection ran in the background; enforcement was one lookup in the agent's own hook. No scheduler, no sidecar, one SQL view."*
 
-**On screen:** `sql/03_detectors.sql`, D1. Highlight `PARTITION BY session_id`, `lags(call_key, 1, 100)` and `streak >= 4 AND streak % 4 = 0`.
+Fallback: `docker compose run --rm simulator --scenario loop`. Retry storm, post-mortem and budget halt are in `demo-runbook-extras.md`, for Q&A only.
 
-> This is the loop detector, the whole thing. `PARTITION BY session_id` gives every session its own state. `lags` looks back at that session's recent tool calls; `streak` counts identical ones in a row. Fourth identical call: fire. If the agent ignores the hint, again on every fourth. It runs forever; nobody schedules it; it doesn't care which agent it's watching.
+## 10. Summary: why Proton (1:00)
 
-## 9. The policy is SQL; the hook delivers it (1:15)
+**On screen:** 1 Reacts in milliseconds · 2 Every rule is just SQL · 3 Open, runs anywhere. Bar: *"Agents emit the signal. Proton turns it into a decision before the next tool call."*
 
-**On screen:** left — `sql/04_policy.sql` (`multi_if` → `interrupt` aimed at a `target`, `halt` for budget or a third strike). Right — the four hook steps.
+> Agents act every few seconds, so the decision has to come from the event itself, per session, before the next tool call. Every rule is a materialized view you can read, review and change as you learn. And it's one small Apache-2.0 binary on the OpenTelemetry and Kafka you already run, even with no outbound network.
 
-> Alerts become actions with one more view, and the policy is reviewable SQL. Delivery: both Claude Code and Codex call a PreToolUse hook before every tool call. Ours asks Proton one question: is there a decision aimed at *this* call? One lookup, about a tenth of a second including the hook itself. Detection runs in the background — the agent never waits for the stream. A matching call is denied once, and the reason is our hint; the model reads it like any tool result and changes course. Any other call runs. Ignore the hint twice and it's a halt, which a person lifts by typing [resume].
+## 11. Try it yourself (0:30)
 
-## 10. Live demo (5:00)
+**On screen:** demo repo (`github.com/timeplus-io/osacon-2026`, `cd demo && docker compose up`), Proton repo, timeplus.com, Slack, LinkedIn and email; QR code to timeplus.com.
 
-Follow `demo-runbook.md`. Grafana on one half of the screen, the agent terminal on the other.
-
-1. **Polling loop — Claude Code** (~2 min). Prompt: wait for deploy #4182. The agent checks, sleeps, checks… On the 4th identical check a row appears in *Decisions*; the 5th check is blocked and Claude Code prints the hook's reason; it tells you the deploy looks stuck. *"Nobody wrote a rule inside Claude Code. The stream decided; the hook delivered."*
-2. **Retry storm — Codex** (~1.5 min). Prompt: pull metrics with `./fetch_metrics.sh`. Three failures → the next retry is blocked → Codex falls back to `metrics-cache/`. *"Different agent, different telemetry vocabulary, same SQL."*
-3. **Post-mortem** (~30s). Grafana *Alerts by detector* / terminal Q6: same engine, now a historical question across both agents.
-
-Budget halt: show only if time allows (set `BUDGET_USD=0.15` beforehand), otherwise mention it.
-
-## 11. What held up, what didn't (2:30)
-
-**Held up**
-- Per-session state (`PARTITION BY`) instead of global windows.
-- Fire once per threshold, on the crossing. Detectors that fire every second are noise; models and humans both stop listening.
-- Async detection, sync enforcement: the agent never waits for the stream; a decision applies to the next matching call.
-- Aim each decision at one call; block it once, let it expire, escalate if ignored.
-- Compare the normalized target, not raw arguments.
-- Interrupt before halt. A one-sentence hint usually fixes a loop; save halt for budgets.
-- Deliver through the agent's own hook — no fork, no wrapper, works for any agent with hooks.
-- Policy in SQL, versioned with the code.
-
-**Didn't**
-- Time windows for per-session detection: the watermark is shared across sessions, so one session's alert waited for another's events, then fired nine times. (Real, from building this demo.)
-- Exact-match on tool arguments: the agent's `description` changes every call, so the loop was invisible.
-- Detecting inside the agent: it's the thing that's broken.
-
-## 12. Open problems (1:15)
-
-- **Semantic loops** — same intent, different commands. Needs embeddings in the pipeline; costs latency.
-- **Between tool calls** — the hook acts at the next tool call; a model that's only "thinking" can't be interrupted that way.
-- **Multi-agent causality** — when agent A's output loops agent B, the pattern spans sessions.
-- **Sensitive content** — tool arguments and prompts in telemetry are a governance problem (`OTEL_LOG_TOOL_DETAILS` is off by default for a reason).
-- **Fully local** — Codex can run on a local model; with that, the whole loop runs without outbound network.
-
-## 13. Takeaways (0:45)
-
-1. Coding agents already emit the signal. Give them a way to hear it.
-2. You can build the loop entirely from open source: OpenTelemetry, Kafka, streaming SQL, and the agent's own hooks.
-3. Keep detectors per-session, fire-once, and outside the agent.
-
-**On screen:** `github.com/timeplus-io/osacon-2026`, `github.com/timeplus-io/proton` (QR codes).
+> The repo has the full stack, Claude Code and Codex preconfigured, plus an offline simulator. The retry storm and runaway spend scenarios are in there too. Thanks.
 
 ---
 
+## Backup (Q&A only)
+
+| Slide | Use it when someone asks |
+|---|---|
+| Agent events | "What does the telemetry actually look like?" |
+| Detect | "Show me a detector." (`sql/03_detectors.sql`) |
+| Decide and deliver | "How does the decision reach the agent? What about a halt?" (`sql/04_policy.sql`, `hooks/proton_gate.py`) |
+| Configuration | "How do I turn the signal on?" |
+| Parse view | "How do both agents map to one schema?" |
+| Timing | "Why not block the call that triggered it?" or "What about rm -rf?" |
+| Open problems | "Semantic loops? Fully local?" |
+
+Lessons from building it, if asked: time windows for per-session detection failed (the watermark is shared across sessions, so one session's alert waited for another's events, then fired nine times); exact-match on tool arguments missed the loop (the Bash description changes every call), so compare the normalized target; detecting inside the agent doesn't work, because the agent is the thing that's broken.
+
 ## Likely questions
 
-- **Why not block the call that triggered the alert?** Detection is asynchronous by design — the agent never waits for the stream. The pattern takes four calls to form; the fifth is blocked. Single-call rules (`rm -rf`, secrets) belong in the hook or the agent's permissions, checked synchronously.
+- **Why not block the call that triggered the alert?** Detection is asynchronous by design — the agent never waits for the stream. The pattern takes four calls to form; the next matching call is blocked. Single-call rules (`rm -rf`, secrets) belong in the hook or the agent's permissions, checked synchronously.
 - **Won't it block legitimate work?** An interrupt is aimed at the call it's about. If the agent has moved on, its next call runs. It blocks once, and expires after a minute.
 - **How do you recover from a halt?** A person types `[resume]` in the session (the hook sees it before the model), or an operator runs `scripts/resume.sh`. It's recorded in `agent_actions`. The budget re-arms at 2×.
 - **What if the stream is down?** No new decisions; the agent runs normally. The hook times out after 1.5 s and allows the call.
