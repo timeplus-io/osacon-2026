@@ -4,7 +4,7 @@ Event logistics (date, venue, slot) come from the organizers' email; this list o
 
 ## Content
 - [ ] Title + abstract sent to the organizers (`abstract.md`)
-- [ ] Slides match `outline.md` (11 main + 8 backup, ~15 minutes plus Q&A buffer)
+- [ ] Slides match `outline.md` (11 main + 9 backup, ~15 minutes plus Q&A buffer)
 - [ ] Slides reviewed for OSS-only content: no commercial products, no customer names, nothing confidential — the session is recorded and livestreamed
 - [ ] Repo link and QR code on the first and last slide
 - [ ] Rehearsed end to end with a timer at least twice (target 15:30, leaving room for a slow demo)

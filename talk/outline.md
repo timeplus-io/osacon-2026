@@ -1,7 +1,7 @@
 # Talk outline and speaker notes
 
 **Closing the Loop with Open Source: Streaming SQL from Agent Telemetry to Agent Action**
-20 minutes + 5 minutes Q&A · 11 main slides + 8 backup · one 4-minute live demo (Claude Code polling loop; the simulator is the fallback)
+20 minutes + 5 minutes Q&A · 11 main slides + 9 backup · one 4-minute live demo (Claude Code polling loop; the simulator is the fallback)
 
 Ground rules for this venue (from the organizers): open source only, no commercial content, the room is livestreamed and recorded. The infrastructure on screen is all OSS (OpenTelemetry, Kafka, Proton, Grafana). The agents are the *clients* being observed: Codex is open source (Apache-2.0); Claude Code is not, so say once that the loop works the same for any agent that exports OTel and has hooks. No customer names; nothing confidential on slides, terminals, or in `.env`.
 
@@ -24,7 +24,7 @@ The speaker notes in the deck are the source of truth for what to say; this file
 | 9 | **Live demo**: observe first, then one SQL view closes the loop | 4:00 | 13:45 |
 | 10 | Summary: why Proton | 1:00 | 14:45 |
 | 11 | Try it yourself (links, QR to timeplus.com) | 0:30 | 15:15 |
-| — | *Backup: divider, agent events, detect, decide and deliver, configuration, parse view, timing, open problems* | Q&A only | |
+| — | *Backup: divider, agent events, detect, decide and deliver, the hook, configuration, parse view, timing, open problems* | Q&A only | |
 
 About 4:45 of slack. Spend it on the demo if the agent is slow; otherwise take questions early. If a live agent doesn't cooperate, switch to the simulator (same pipeline), see `demo-runbook.md`. Don't debug on stage.
 
@@ -106,7 +106,8 @@ Fallback: `docker compose run --rm simulator --scenario loop`. Retry storm, post
 |---|---|
 | Agent events | "What does the telemetry actually look like?" |
 | Detect | "Show me a detector." (`sql/03_detectors.sql`) |
-| Decide and deliver | "How does the decision reach the agent? What about a halt?" (`sql/04_policy.sql`, `hooks/proton_gate.py`) |
+| Decide and deliver | "How does the decision reach the agent? What about a halt?" (`sql/04_policy.sql`) |
+| The hook | "What does your hook actually do?" (`hooks/proton_gate.py`: PreToolUse lookup, deny once, halt, `[resume]`, fail open) |
 | Configuration | "How do I turn the signal on?" |
 | Parse view | "How do both agents map to one schema?" |
 | Timing | "Why not block the call that triggered it?" or "What about rm -rf?" |
