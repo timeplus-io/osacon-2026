@@ -51,5 +51,6 @@ GROUP BY e.agent, a.detector
 ORDER BY alerts DESC;
 
 
--- Q7. Debug: the raw OTLP payloads as they come off Kafka
-SELECT substring(raw, 1, 400) FROM otlp_logs_raw;
+-- Q7. Debug: the raw OTLP payloads as they come off Kafka (replays the last
+--     10 minutes of the topic, then follows it; Ctrl-C to stop)
+SELECT substring(raw, 1, 400) FROM otlp_logs_kafka SETTINGS seek_to='-10m';

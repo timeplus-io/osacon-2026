@@ -59,11 +59,10 @@ demo/
 ├── .env.example                API keys, budgets
 ├── otel-collector/config.yaml  OTLP in → Kafka (otlp_json) out
 ├── sql/
-│   ├── 01_streams.sql          streams
+│   ├── 01_streams.sql          the Kafka external stream (otlp_logs) and the loop's streams
 │   ├── 02_parse_otlp_logs.sql  OTLP/JSON logs → agent_events (Claude Code + Codex vocabularies)
 │   ├── 03_detectors.sql        tool_loop, tool_errors, budget
 │   ├── 04_policy.sql           alerts → interrupt / halt, with the hint text
-│   ├── 05_kafka.sql            Kafka in (otlp_logs) and out (agent_actions)
 │   ├── queries.sql             live queries for the terminal
 │   └── 99_teardown.sql
 ├── hooks/proton_gate.py        the hook both agents call (stdlib Python)

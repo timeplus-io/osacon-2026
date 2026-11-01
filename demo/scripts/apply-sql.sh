@@ -5,7 +5,7 @@
 #
 #   PROTON_HOST     proton host               (default: proton)
 #   PROTON_BIN      proton binary             (default: proton)
-#   KAFKA_BROKERS   broker list for 05_kafka   (default: kafka:9092)
+#   KAFKA_BROKERS   broker list for the Kafka external stream in 01_streams (default: kafka:9092)
 #   BUDGET_USD      session budget in USD      (default: 0.50)
 #   BUDGET_TOKENS   session budget in tokens   (default: 200000)
 set -euo pipefail

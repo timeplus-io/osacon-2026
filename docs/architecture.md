@@ -12,11 +12,9 @@ flowchart LR
     subgraph Transport
         C[OpenTelemetry Collector<br/>otlp → kafka, otlp_json]
         K1[(Kafka<br/>otlp_logs)]
-        K2[(Kafka<br/>agent_actions)]
     end
 
     subgraph Proton["Proton (streaming SQL)"]
-        R[otlp_logs_raw]
         P[[mv_otlp_logs_to_events<br/>both vocabularies → one schema]]
         E[agent_events]
         SL[agent_session_log]
@@ -30,9 +28,8 @@ flowchart LR
 
     G[Grafana<br/>for humans · optional]
 
-    CC & CX & SIM -->|OTel log events| C --> K1 -->|external stream| R --> P --> E
+    CC & CX & SIM -->|OTel log events| C --> K1 -->|external stream| P --> E
     E --> D1 & D2 & D3 --> AL --> PO --> AC
-    AC -->|external stream| K2
     H -->|before every tool call| AC
     H -->|deny + reason / continue:false| CC & CX & SIM
     H -->|prompts, calls, decisions| SL
@@ -54,7 +51,7 @@ Classic observability has only the second branch. The point of this demo is the 
 
 ## Why Kafka is in the middle
 
-Proton OSS has no OTLP receiver. Kafka is the bridge: the OpenTelemetry Collector's `kafka` exporter writes OTLP/JSON, and Proton reads the topic with a Kafka external stream. It's also the natural fan-out point — decisions go back out on `agent_actions` for anyone else to consume.
+Proton OSS has no OTLP receiver. Kafka is the bridge: the OpenTelemetry Collector's `kafka` exporter writes OTLP/JSON, and the parse view reads the topic directly through a Kafka external stream (`sql/01_streams.sql`). Nothing is copied: the topic is the raw log. If something else should see decisions (paging, audit, another controller), one more view can publish `agent_actions` to a topic the same way; the demo doesn't need it, so it isn't there.
 
 ## Data flow
 
@@ -62,7 +59,7 @@ Proton OSS has no OTLP receiver. Kafka is the bridge: the OpenTelemetry Collecto
 |---|---|---|
 | 1 | Claude Code and Codex export OpenTelemetry **log events** for every tool call and model call. | `docker-compose.yml` (Claude Code env), `agents/codex/config.toml` |
 | 2 | The Collector writes each batch to Kafka as OTLP/JSON. | `otel-collector/config.yaml` |
-| 3 | A Kafka external stream reads the topic into `otlp_logs_raw`. | `sql/05_kafka.sql` |
+| 3 | A Kafka external stream exposes the topic to SQL; the parse view reads it directly. | `sql/01_streams.sql` |
 | 4 | One materialized view flattens `resourceLogs → scopeLogs → logRecords` and maps both agents' vocabularies onto `agent_events`, including a normalized `call_target` (the shell command minus `sleep N &&`, or the file path). | `sql/02_parse_otlp_logs.sql` |
 | 5 | Three detectors keep per-session state and append to `agent_alerts`. | `sql/03_detectors.sql` |
 | 6 | The policy view maps alerts to `interrupt` (aimed at one call: its `target`) or `halt`, with the text the model will read. A third failing pattern in a session escalates to `halt`. | `sql/04_policy.sql` |

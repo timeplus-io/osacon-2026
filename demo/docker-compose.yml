@@ -44,6 +44,12 @@ services:
   # ---------------------------------------------------------------- engine
   proton:
     image: d.timeplus.com/timeplus-io/proton:latest   # tested with Proton v3.0.31
+    # Named volume: the image declares VOLUME /var/lib/proton, so without this every
+    # `docker compose up` after a `down` left a detached ~20 GB anonymous volume behind
+    # (Proton preallocates ~2 GB of write-ahead log per stream). `docker compose down -v`
+    # wipes it; scripts/reset.sh is enough between rehearsals.
+    volumes:
+      - proton-data:/var/lib/proton
     ports:
       - "8463:8463"   # native protocol (proton client)
       - "3218:3218"   # HTTP ingest API + streaming queries
@@ -87,7 +93,7 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        for t in otlp_logs agent_actions; do
+        for t in otlp_logs; do
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic $$t --partitions 1 --replication-factor 1
         done
     restart: "no"
@@ -190,3 +196,4 @@ services:
 
 volumes:
   grafana-data:
+  proton-data:

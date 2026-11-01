@@ -71,6 +71,6 @@ FROM
     otel_attrs(json_extract_array_raw(rec, 'attributes')) AS attrs,
     attrs['event.name'] AS name,
     json_extract_string(rec, 'body', 'stringValue') AS body
-  FROM otlp_logs_raw
+  FROM otlp_logs_kafka          -- the Kafka topic itself, through the external stream in 01
 )
 WHERE session_id != '';
