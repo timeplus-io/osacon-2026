@@ -1,7 +1,9 @@
 -- ============================================================================
 -- 01_streams.sql — the streams that make up the loop
 --
---   otlp_logs_raw      OTLP/JSON log payloads from Kafka (one ExportLogsServiceRequest per row)
+--   otlp_logs_kafka    external stream over the Kafka topic the OpenTelemetry
+--                      Collector writes to (one OTLP/JSON ExportLogsServiceRequest
+--                      per message); the parse view in 02 reads it directly
 --   agent_events       one row per agent event: tool calls, model calls, prompts
 --                      (Claude Code, Codex, or the offline simulator — one schema)
 --   agent_session_log  the agent's own append-only log, written by its hooks
@@ -10,11 +12,19 @@
 --                      (plus 'resume' rows when a person lifts a halt)
 -- ============================================================================
 
-CREATE STREAM IF NOT EXISTS otlp_logs_raw
+-- Kafka is the bridge: Proton OSS has no OTLP receiver, so the Collector's kafka
+-- exporter writes OTLP/JSON to the `otlp_logs` topic and this external stream
+-- exposes it to SQL. The topic must exist first (docker compose creates it);
+-- scripts/apply-sql.sh substitutes the broker address.
+CREATE EXTERNAL STREAM IF NOT EXISTS otlp_logs_kafka
 (
   raw string
 )
-COMMENT 'Raw OTLP/JSON log payloads, copied from the Kafka topic otlp_logs';
+SETTINGS type = 'kafka',
+         brokers = 'kafka:9092',
+         topic = 'otlp_logs',
+         data_format = 'RawBLOB',
+         one_message_per_row = true;
 
 CREATE STREAM IF NOT EXISTS agent_events
 (

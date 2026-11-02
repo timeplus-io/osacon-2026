@@ -59,11 +59,11 @@ demo/
   docker-compose.yml        proton, kafka (KRaft), kafka-init, otel-collector, proton-init, grafana;
                             profile "agents": claude, codex, simulator
   .env.example              ANTHROPIC_API_KEY, OPENAI_API_KEY, ANTHROPIC_MODEL, BUDGET_USD=0.50, BUDGET_TOKENS=200000
-  sql/01_streams.sql        otlp_logs_raw, agent_events, agent_session_log, agent_alerts, agent_actions
-  sql/02_parse_otlp_logs.sql UDFs otel_attrs, agent_call_target; MV OTLP JSON → agent_events (both agents → one schema)
+  sql/01_streams.sql        otlp_logs_kafka (external stream over the topic; brokers substituted by apply-sql.sh),
+                            agent_events, agent_session_log, agent_alerts, agent_actions
+  sql/02_parse_otlp_logs.sql UDFs otel_attrs, agent_call_target; MV Kafka topic (OTLP JSON) → agent_events (both agents → one schema)
   sql/03_detectors.sql      tool_loop, tool_errors, budget (__BUDGET_USD__/__BUDGET_TOKENS__ substituted by apply-sql.sh)
   sql/04_policy.sql         mv_policy → agent_actions (interrupt/halt, target, hint, escalation)
-  sql/05_kafka.sql          Kafka external streams in/out (brokers kafka:9092 substituted by apply-sql.sh)
   sql/99_teardown.sql       drop everything (used by scripts/reset.sh)
   sql/queries.sql           Q1–Q7 for the terminal during the demo
   hooks/proton_gate.py      the hook (see above)
@@ -119,6 +119,7 @@ Proton gotchas we hit:
 - A `lags()` bool column pads with `false`; use a `uint8` flag instead.
 - An alias that is referenced only inside `lags()` (e.g. `live` from `now64()`) is not evaluated per row in a materialized view: it came out constant `false`, while the same SQL as an interactive streaming query was fine. Projecting the alias in the outer SELECT fixes it (that's why `reason` carries the `(replayed)` tag).
 - Time windows over many sessions share one watermark (an alert waited for other sessions' events, then fired 9×). That's why detectors use per-session row state.
+- **Disk:** Proton preallocates ~2.1 GB of write-ahead log (`nativelog/`) per stream, system streams included, so one instance sits at 20–30 GB; dropped streams linger as `*.delete` for a while. Above 90% disk use (`max_disk_util`) Proton refuses to create streams/views (`DISK_USAGE_RATIO_THRESHOLD_EXCEEDED`) and the schema apply fails. On 2026-11-01 the Docker VM was at 93%: sixty detached anonymous volumes from earlier `down`/`up` cycles. Fix: `docker volume prune` (anonymous, detached only). The compose file now gives Proton a named volume (`proton-data`) so this doesn't recur; check `docker run --rm alpine df -h /` before going on stage.
 
 ---
 
