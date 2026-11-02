@@ -112,7 +112,7 @@ Fallback: `docker compose run --rm simulator --scenario loop`. Retry storm, post
 | Parse view | "How do both agents map to one schema?" |
 | Timing | "Why not block the call that triggered it?" or "What about rm -rf?" |
 | Open problems | "Semantic loops? Fully local?" |
-| Full pipeline today | "Why so many streams?" Every stream and view in `sql/01`–`05`; dashed pink = remove or review in issue #6 (the `agent_actions` Kafka copy, the `otlp_logs_raw` copy, `agent_session_log`) |
+| Full pipeline | "Why so many streams?" Everything `sql/01`–`04` creates: one Kafka topic in through `otlp_logs_kafka`, one stream of decisions out (`agent_actions`), plus `agent_session_log` from the hook. Nothing is written back to Kafka (simplified in #6). |
 
 Lessons from building it, if asked: time windows for per-session detection failed (the watermark is shared across sessions, so one session's alert waited for another's events, then fired nine times); exact-match on tool arguments missed the loop (the Bash description changes every call), so compare the normalized target; detecting inside the agent doesn't work, because the agent is the thing that's broken.
 
